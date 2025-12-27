@@ -48,16 +48,8 @@ class GameBoard {
 
     // 扩展格子
     expandCells(totalLevel) {
-        const expansionRules = [
-            { level: 10, count: 28 },
-            { level: 15, count: 31 },
-            { level: 20, count: 34 },
-            { level: 25, count: 37 },
-            { level: 30, count: 40 },
-            { level: 35, count: 43 },
-            { level: 40, count: 46 },
-            { level: 45, count: 49 }
-        ];
+        // 使用配置的扩展规则
+        const expansionRules = BOARD_EXPANSION_RULES || [];
 
         for (let rule of expansionRules) {
             if (totalLevel >= rule.level && this.currentCellCount < rule.count) {
@@ -320,11 +312,12 @@ class AttributeCalculator {
             });
         });
 
-        // 如果全满，一级属性+50%
+        // 如果全满，一级属性按配置比例加成
         if (this.gameBoard.isFull()) {
-            attributes.attack *= 1.5;
-            attributes.defense *= 1.5;
-            attributes.health *= 1.5;
+            const bonus = FULL_BOARD_BONUS || 1.5;
+            attributes.attack *= bonus;
+            attributes.defense *= bonus;
+            attributes.health *= bonus;
         }
 
         return attributes;

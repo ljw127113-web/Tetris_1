@@ -7,6 +7,7 @@ let attributeCalculator = new AttributeCalculator(gameBoard);
 let previousAttributes = {};
 let dragBlock = null;
 let dragOffset = { x: 0, y: 0 };
+let gachaCounts = { low: 0, high: 0 }; // 宝箱开启次数统计
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
@@ -21,6 +22,8 @@ document.addEventListener('DOMContentLoaded', () => {
     // 加载保存的数据
     loadGameData();
     loadConfigData();
+    loadGachaCounts();
+    updateGachaCounts();
 });
 
 // 导航切换
@@ -436,11 +439,12 @@ function highlightBoardCells(e) {
         cell.classList.remove('invalid', 'highlight', 'preview-valid', 'preview-invalid');
     });
     
-    // 移除之前的预览方块
+    // 移除之前的预览方块和增幅范围
     const existingPreview = board.querySelector('.preview-block');
     if (existingPreview) {
         existingPreview.remove();
     }
+    board.querySelectorAll('.bonus-range-preview').forEach(el => el.remove());
     
     if (!dragBlock || !dragBlock.cloneEl) return;
     
@@ -507,6 +511,11 @@ function highlightBoardCells(e) {
         if (canPlace) {
             const previewBlock = createPreviewBlock(dragBlock, baseX, baseY, minX, minY);
             board.appendChild(previewBlock);
+            
+            // 如果是特殊方块，显示增幅范围
+            if (dragBlock.isSpecial) {
+                renderBonusRangePreview(dragBlock, baseX, baseY, minX, minY);
+            }
         }
     } else {
         // 标记无效位置
@@ -518,6 +527,39 @@ function highlightBoardCells(e) {
             }
         });
     }
+}
+
+// 渲染特殊方块增幅范围预览
+function renderBonusRangePreview(block, baseX, baseY, boardMinX, boardMinY) {
+    const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
+    const board = document.getElementById('game-board');
+    
+    range.forEach(([dx, dy]) => {
+        const targetX = baseX + dx;
+        const targetY = baseY + dy;
+        const key = `${targetX},${targetY}`;
+        
+        // 只显示在底板范围内的格子
+        if (gameBoard.cells.has(key)) {
+            const cell = board.querySelector(`[data-x="${targetX}"][data-y="${targetY}"]`);
+            if (cell) {
+                // 添加增幅范围标记（与放置提示区分）
+                const rangeMarker = document.createElement('div');
+                rangeMarker.className = 'bonus-range-preview';
+                rangeMarker.style.position = 'absolute';
+                rangeMarker.style.left = (targetX - boardMinX) * gameBoard.cellSize + 'px';
+                rangeMarker.style.top = (targetY - boardMinY) * gameBoard.cellSize + 'px';
+                rangeMarker.style.width = gameBoard.cellSize + 'px';
+                rangeMarker.style.height = gameBoard.cellSize + 'px';
+                rangeMarker.style.border = '2px dashed #9b59b6';
+                rangeMarker.style.backgroundColor = 'rgba(155, 89, 182, 0.2)';
+                rangeMarker.style.pointerEvents = 'none';
+                rangeMarker.style.zIndex = '4';
+                rangeMarker.style.boxSizing = 'border-box';
+                board.appendChild(rangeMarker);
+            }
+        }
+    });
 }
 
 // 创建预览方块
@@ -654,6 +696,7 @@ function cleanupDrag() {
             if (preview) {
                 preview.remove();
             }
+            board.querySelectorAll('.bonus-range-preview').forEach(el => el.remove());
         }
         dragBlock = null;
     }
@@ -670,6 +713,15 @@ function updateAttributeDisplay() {
     levelInfo.className = 'total-level-info';
     levelInfo.innerHTML = `<strong>总等级: ${totalLevel}</strong>`;
     display.appendChild(levelInfo);
+    
+    // 显示宝箱开启次数
+    const gachaInfo = document.createElement('div');
+    gachaInfo.className = 'gacha-count-info';
+    gachaInfo.innerHTML = `
+        <div>低级宝箱: ${gachaCounts.low} 次</div>
+        <div>高级宝箱: ${gachaCounts.high} 次</div>
+    `;
+    display.appendChild(gachaInfo);
     
     const attributes = attributeCalculator.calculateTotalAttributes();
     
@@ -738,6 +790,10 @@ function openChest(type, count) {
     results.forEach(block => {
         playerInventory.push(block);
     });
+    
+    // 更新开启次数
+    gachaCounts[type] += count;
+    updateGachaCounts();
     
     displayGachaResults(results);
     saveGameData();
@@ -838,12 +894,16 @@ function resetSystem() {
     // 4. 重新生成初始25个格子
     gameBoard.generateInitialCells();
     
-    // 5. 重新渲染
+    // 5. 重置宝箱开启次数
+    gachaCounts = { low: 0, high: 0 };
+    updateGachaCounts();
+    
+    // 6. 重新渲染
     renderBoard();
     renderInventory();
     updateAttributeDisplay();
     
-    // 6. 保存数据
+    // 7. 保存数据
     saveGameData();
     
     console.log('系统已重置');
@@ -961,7 +1021,8 @@ function saveGameData() {
                 x, y
             }))
         },
-        placedBlockIds: Array.from(placedBlocks)
+        placedBlockIds: Array.from(placedBlocks),
+        gachaCounts: gachaCounts
     };
     
     localStorage.setItem('tetrisGameData', JSON.stringify(data));
@@ -984,6 +1045,11 @@ function loadGameData() {
         
         // 恢复放置的方块
         placedBlocks = new Set(data.placedBlockIds);
+        
+        // 恢复宝箱开启次数
+        if (data.gachaCounts) {
+            gachaCounts = data.gachaCounts;
+        }
         
         // 恢复底板
         data.board.blocks.forEach(({ blockId, x, y }) => {
@@ -1009,6 +1075,51 @@ function loadGameData() {
         updateAttributeDisplay();
     } catch (e) {
         console.error('加载游戏数据失败:', e);
+    }
+}
+
+// 更新宝箱开启次数显示
+function updateGachaCounts() {
+    // 更新宝箱页面的显示
+    const lowBox = document.querySelector('.gacha-box:first-child');
+    const highBox = document.querySelector('.gacha-box:last-child');
+    
+    if (lowBox) {
+        let countEl = lowBox.querySelector('.gacha-count');
+        if (!countEl) {
+            countEl = document.createElement('div');
+            countEl.className = 'gacha-count';
+            lowBox.querySelector('p').insertAdjacentElement('afterend', countEl);
+        }
+        countEl.textContent = `本次重置后开启: ${gachaCounts.low} 次`;
+    }
+    
+    if (highBox) {
+        let countEl = highBox.querySelector('.gacha-count');
+        if (!countEl) {
+            countEl = document.createElement('div');
+            countEl.className = 'gacha-count';
+            highBox.querySelector('p').insertAdjacentElement('afterend', countEl);
+        }
+        countEl.textContent = `本次重置后开启: ${gachaCounts.high} 次`;
+    }
+    
+    // 更新主界面的显示（在updateAttributeDisplay中已处理）
+    updateAttributeDisplay();
+}
+
+// 加载宝箱开启次数
+function loadGachaCounts() {
+    const dataStr = localStorage.getItem('tetrisGameData');
+    if (!dataStr) return;
+    
+    try {
+        const data = JSON.parse(dataStr);
+        if (data.gachaCounts) {
+            gachaCounts = data.gachaCounts;
+        }
+    } catch (e) {
+        console.error('加载宝箱次数失败:', e);
     }
 }
 
@@ -1039,6 +1150,12 @@ function renderConfigPage() {
             break;
         case 'table5':
             renderSpecialBlockBonusTable(content);
+            break;
+        case 'table6':
+            renderBoardExpansionTable(content);
+            break;
+        case 'table7':
+            renderFullBoardBonusTable(content);
             break;
     }
 }
@@ -1240,6 +1357,110 @@ function renderSpecialBlockBonusTable(container) {
     container.appendChild(table);
 }
 
+// 渲染底板扩展规则表
+function renderBoardExpansionTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置方块总等级达到多少时，底板扩展到多少个格子</p>';
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>序号</th>
+                <th>总等级要求</th>
+                <th>格子数量</th>
+                <th>操作</th>
+            </tr>
+        </thead>
+        <tbody id="expansion-rules-tbody"></tbody>
+    `;
+    
+    const tbody = table.querySelector('#expansion-rules-tbody');
+    
+    // 渲染现有规则
+    function renderRules() {
+        tbody.innerHTML = '';
+        BOARD_EXPANSION_RULES.forEach((rule, index) => {
+            const row = document.createElement('tr');
+            row.dataset.index = index;
+            row.innerHTML = `
+                <td>${index + 1}</td>
+                <td><input type="number" min="0" data-field="level" value="${rule.level}"></td>
+                <td><input type="number" min="25" data-field="count" value="${rule.count}"></td>
+                <td><button class="delete-rule-btn" data-index="${index}">删除</button></td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+    
+    renderRules();
+    
+    // 添加新规则按钮
+    const addBtn = document.createElement('button');
+    addBtn.className = 'add-rule-btn';
+    addBtn.textContent = '添加规则';
+    addBtn.style.marginTop = '10px';
+    addBtn.style.padding = '8px 15px';
+    addBtn.style.background = '#3498db';
+    addBtn.style.color = 'white';
+    addBtn.style.border = 'none';
+    addBtn.style.borderRadius = '5px';
+    addBtn.style.cursor = 'pointer';
+    addBtn.addEventListener('click', () => {
+        const lastRule = BOARD_EXPANSION_RULES[BOARD_EXPANSION_RULES.length - 1];
+        const newLevel = lastRule ? lastRule.level + 5 : 10;
+        const newCount = lastRule ? lastRule.count + 3 : 28;
+        BOARD_EXPANSION_RULES.push({ level: newLevel, count: newCount });
+        renderRules();
+    });
+    
+    // 删除规则
+    tbody.addEventListener('click', (e) => {
+        if (e.target.classList.contains('delete-rule-btn')) {
+            const index = parseInt(e.target.dataset.index);
+            if (BOARD_EXPANSION_RULES.length > 1) {
+                BOARD_EXPANSION_RULES.splice(index, 1);
+                renderRules();
+            } else {
+                alert('至少需要保留一条规则');
+            }
+        }
+    });
+    
+    div.appendChild(table);
+    div.appendChild(addBtn);
+    container.appendChild(div);
+}
+
+// 渲染全满加成配置表
+function renderFullBoardBonusTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置底板填满后，一级属性（攻击、防御、生命）的加成比例</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">例如：1.5 表示增加50%（最终为150%），2.0 表示增加100%（最终为200%）</p>';
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>配置项</th>
+                <th>加成比例</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>底板填满后一级属性加成</td>
+                <td><input type="number" step="0.1" min="1" id="full-board-bonus-input" value="${FULL_BOARD_BONUS}"></td>
+            </tr>
+        </tbody>
+    `;
+    
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
 // 初始化配置页面
 function initializeConfigPage() {
     // 标签切换
@@ -1321,13 +1542,36 @@ function saveConfigData() {
         SPECIAL_BLOCK_BONUS[level] = parseFloat(input.value);
     });
     
+    // 保存底板扩展规则
+    BOARD_EXPANSION_RULES.length = 0; // 清空数组
+    document.querySelectorAll('#expansion-rules-tbody tr').forEach(row => {
+        const levelInput = row.querySelector('[data-field="level"]');
+        const countInput = row.querySelector('[data-field="count"]');
+        if (levelInput && countInput) {
+            BOARD_EXPANSION_RULES.push({
+                level: parseInt(levelInput.value),
+                count: parseInt(countInput.value)
+            });
+        }
+    });
+    // 按level排序
+    BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
+    
+    // 保存全满加成比例
+    const fullBoardBonusInput = document.getElementById('full-board-bonus-input');
+    if (fullBoardBonusInput) {
+        FULL_BOARD_BONUS = parseFloat(fullBoardBonusInput.value);
+    }
+    
     // 保存到localStorage
     localStorage.setItem('gameConfig', JSON.stringify({
         ATTRIBUTE_LEVEL_TABLE,
         SPECIAL_BLOCK_RANGE,
         GACHA_PROBABILITY,
         SECONDARY_ATTRIBUTE_CONFIG,
-        SPECIAL_BLOCK_BONUS
+        SPECIAL_BLOCK_BONUS,
+        BOARD_EXPANSION_RULES,
+        FULL_BOARD_BONUS
     }));
     
     console.log('配置已保存');
@@ -1356,6 +1600,14 @@ function loadConfigData() {
         }
         if (config.SPECIAL_BLOCK_BONUS) {
             Object.assign(SPECIAL_BLOCK_BONUS, config.SPECIAL_BLOCK_BONUS);
+        }
+        if (config.BOARD_EXPANSION_RULES) {
+            BOARD_EXPANSION_RULES.length = 0;
+            BOARD_EXPANSION_RULES.push(...config.BOARD_EXPANSION_RULES);
+            BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
+        }
+        if (config.FULL_BOARD_BONUS !== undefined) {
+            FULL_BOARD_BONUS = config.FULL_BOARD_BONUS;
         }
         
         console.log('配置数据已加载');

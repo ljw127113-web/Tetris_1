@@ -114,3 +114,18 @@ const PRIMARY_ATTR_NAMES = {
     'health': '生命'
 };
 
+// 底板扩展规则（总等级 -> 格子数量）
+const BOARD_EXPANSION_RULES = [
+    { level: 10, count: 28 },
+    { level: 15, count: 31 },
+    { level: 20, count: 34 },
+    { level: 25, count: 37 },
+    { level: 30, count: 40 },
+    { level: 35, count: 43 },
+    { level: 40, count: 46 },
+    { level: 45, count: 49 }
+];
+
+// 底板填满后的属性加成比例（1.5表示增加50%，即最终为150%）
+let FULL_BOARD_BONUS = 1.5;
+
