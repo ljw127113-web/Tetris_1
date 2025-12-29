@@ -243,7 +243,7 @@ class Block {
         this.cells.forEach((cell, idx) => {
             text += `格子${idx + 1}: ${PRIMARY_ATTR_NAMES[cell.primaryAttr]} ${cell.primaryValue}`;
             if (cell.secondaryAttr) {
-                text += `\n${SECONDARY_ATTR_NAMES[cell.secondaryAttr]}: ${cell.secondaryValue}%`;
+                text += `\n${SECONDARY_ATTR_NAMES[cell.secondaryAttr]}: ${cell.secondaryValue.toFixed(2)}%`;
             }
             text += '\n';
         });

@@ -14,6 +14,36 @@ let goldKeys = 1; // 金色钥匙数量（初始1个）
 let activeDays = 0; // 活跃天数（从0天开始）
 let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
 
+// 版本号管理
+function getVersion() {
+    const savedVersion = localStorage.getItem('gameVersion');
+    if (savedVersion) {
+        return savedVersion;
+    }
+    return '1.1.0'; // 默认版本号
+}
+
+function incrementVersion() {
+    const currentVersion = getVersion();
+    const parts = currentVersion.split('.');
+    if (parts.length === 3) {
+        const patch = parseInt(parts[2]) || 0;
+        parts[2] = (patch + 1).toString();
+        const newVersion = parts.join('.');
+        localStorage.setItem('gameVersion', newVersion);
+        updateVersionDisplay();
+        return newVersion;
+    }
+    return currentVersion;
+}
+
+function updateVersionDisplay() {
+    const display = document.getElementById('version-display');
+    if (display) {
+        display.textContent = `版本号: ${getVersion()}`;
+    }
+}
+
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
     // 先加载配置，获取方案数量
@@ -28,6 +58,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initializeUpgrade();
     initializeClearBoard();
     initializeConfigPage();
+    updateVersionDisplay(); // 初始化版本号显示
     updateAttributeDisplay();
     
     // 加载保存的数据
@@ -860,9 +891,14 @@ function updateAttributeDisplay() {
         nameEl.textContent = name + ': ';
         
         const valueEl = document.createElement('span');
-        valueEl.textContent = Math.floor(attributes[key]);
-        if (key.includes('crit') || key.includes('dodge') || key.includes('armor')) {
-            valueEl.textContent += '%';
+        // 判断是否为二级属性（百分比属性）
+        const isSecondaryAttr = key.includes('crit') || key.includes('dodge') || key.includes('armor');
+        if (isSecondaryAttr) {
+            // 二级属性精确到小数点后两位
+            valueEl.textContent = attributes[key].toFixed(2) + '%';
+        } else {
+            // 一级属性使用整数
+            valueEl.textContent = Math.floor(attributes[key]);
         }
         
         item.appendChild(nameEl);
@@ -874,7 +910,12 @@ function updateAttributeDisplay() {
             if (Math.abs(change) > 0.01) {
                 const changeEl = document.createElement('span');
                 changeEl.className = `attribute-change ${change > 0 ? 'positive' : 'negative'}`;
-                changeEl.textContent = (change > 0 ? '+' : '') + Math.floor(change);
+                // 如果是二级属性，变化值也精确到小数点后两位
+                if (isSecondaryAttr) {
+                    changeEl.textContent = (change > 0 ? '+' : '') + change.toFixed(2);
+                } else {
+                    changeEl.textContent = (change > 0 ? '+' : '') + Math.floor(change);
+                }
                 item.appendChild(changeEl);
                 
                 setTimeout(() => changeEl.remove(), 1000);
@@ -1163,7 +1204,7 @@ function manualMerge() {
             detailText += `${index + 1}. 等级 ${block.level} 方块：\n`;
             block.cells.forEach((cell, cellIndex) => {
                 if (cell.secondaryAttr) {
-                    detailText += `   - 格子${cellIndex + 1}: ${SECONDARY_ATTR_NAMES[cell.secondaryAttr]} ${cell.secondaryValue}%\n`;
+                    detailText += `   - 格子${cellIndex + 1}: ${SECONDARY_ATTR_NAMES[cell.secondaryAttr]} ${cell.secondaryValue.toFixed(2)}%\n`;
                 }
             });
             detailText += '\n';
@@ -1372,15 +1413,102 @@ function resetSystem() {
     // 8. 清除选择状态
     selectedBlockIds.clear();
     
-    // 7. 重新渲染
+    // 7. 从默认配置文件重新加载配置
+    loadDefaultConfig();
+    
+    // 8. 重新渲染
     renderBoard();
     renderInventory();
     updateAttributeDisplay();
     
-    // 7. 保存游戏数据（不包含配置数据，配置数据会保留）
+    // 9. 保存游戏数据（不包含配置数据，配置数据会保留）
     saveGameData();
     
-    console.log('系统已重置（数据配置已保留）');
+    console.log('系统已重置（已从默认配置重新加载）');
+}
+
+// 从默认配置文件加载配置
+function loadDefaultConfig() {
+    const defaultConfigStr = localStorage.getItem('defaultGameConfig');
+    if (defaultConfigStr) {
+        try {
+            const defaultConfig = JSON.parse(defaultConfigStr);
+            // 使用 loadConfigData 的逻辑来加载默认配置
+            loadConfigFromObject(defaultConfig);
+            // 同时更新当前配置
+            localStorage.setItem('gameConfig', defaultConfigStr);
+            console.log('已从默认配置重新加载');
+        } catch (e) {
+            console.error('加载默认配置失败:', e);
+        }
+    } else {
+        console.log('没有默认配置文件，使用 data.js 中的原始默认值');
+    }
+}
+
+// 从配置对象加载配置（供 loadDefaultConfig 和 loadConfigData 使用）
+function loadConfigFromObject(config) {
+    // 完全覆盖全局配置对象（而不是合并）
+    if (config.ATTRIBUTE_LEVEL_TABLE) {
+        // 清空原有配置，完全替换
+        Object.keys(ATTRIBUTE_LEVEL_TABLE).forEach(key => delete ATTRIBUTE_LEVEL_TABLE[key]);
+        Object.assign(ATTRIBUTE_LEVEL_TABLE, config.ATTRIBUTE_LEVEL_TABLE);
+    }
+    if (config.SPECIAL_BLOCK_RANGE) {
+        // 清空原有配置，完全替换
+        Object.keys(SPECIAL_BLOCK_RANGE).forEach(key => delete SPECIAL_BLOCK_RANGE[key]);
+        Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
+    }
+    if (config.GACHA_PROBABILITY) {
+        // 完全替换宝箱概率配置
+        if (config.GACHA_PROBABILITY.low) {
+            GACHA_PROBABILITY.low = { ...config.GACHA_PROBABILITY.low };
+        }
+        if (config.GACHA_PROBABILITY.high) {
+            GACHA_PROBABILITY.high = { ...config.GACHA_PROBABILITY.high };
+        }
+    }
+    if (config.SECONDARY_ATTRIBUTE_CONFIG) {
+        // 完全替换二级属性配置
+        if (config.SECONDARY_ATTRIBUTE_CONFIG.probability) {
+            SECONDARY_ATTRIBUTE_CONFIG.probability = { ...config.SECONDARY_ATTRIBUTE_CONFIG.probability };
+        }
+        if (config.SECONDARY_ATTRIBUTE_CONFIG.values) {
+            SECONDARY_ATTRIBUTE_CONFIG.values = { ...config.SECONDARY_ATTRIBUTE_CONFIG.values };
+        }
+    }
+    if (config.SPECIAL_BLOCK_BONUS) {
+        // 清空原有配置，完全替换
+        Object.keys(SPECIAL_BLOCK_BONUS).forEach(key => delete SPECIAL_BLOCK_BONUS[key]);
+        Object.assign(SPECIAL_BLOCK_BONUS, config.SPECIAL_BLOCK_BONUS);
+    }
+    if (config.BOARD_EXPANSION_RULES) {
+        BOARD_EXPANSION_RULES.length = 0;
+        BOARD_EXPANSION_RULES.push(...config.BOARD_EXPANSION_RULES);
+        BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
+    }
+    if (config.FULL_BOARD_BONUS !== undefined) {
+        FULL_BOARD_BONUS = config.FULL_BOARD_BONUS;
+    }
+    if (config.ACTIVE_DAY_REWARDS) {
+        // 兼容旧格式（按天数）和新格式（每天固定）
+        Object.keys(config.ACTIVE_DAY_REWARDS).forEach(role => {
+            const roleData = config.ACTIVE_DAY_REWARDS[role];
+            // 如果是对象且没有数字键，说明是新格式（每天固定）
+            if (roleData && typeof roleData === 'object' && !Object.keys(roleData).some(k => !isNaN(k))) {
+                ACTIVE_DAY_REWARDS[role] = roleData;
+            } else {
+                // 旧格式，取第一天的奖励作为每天固定奖励
+                const firstDay = Object.keys(roleData).map(Number).sort((a, b) => a - b)[0];
+                if (firstDay !== undefined) {
+                    ACTIVE_DAY_REWARDS[role] = roleData[firstDay];
+                }
+            }
+        });
+    }
+    if (config.BOARD_SCHEME_COUNT !== undefined) {
+        BOARD_SCHEME_COUNT = config.BOARD_SCHEME_COUNT;
+    }
 }
 
 // 存储选中的方块ID（用于手动合成）
@@ -1543,6 +1671,41 @@ function autoMerge(levelStr) {
         return;
     }
     
+    // 检查是否有二级属性的方块会被消耗
+    const blocksWithSecondaryAttr = blocks.filter(block => {
+        if (block.isSpecial) return false; // 特殊方块没有二级属性
+        return block.cells.some(cell => cell.secondaryAttr !== null);
+    });
+    
+    // 如果存在含有二级属性的方块，进行二次确认
+    if (blocksWithSecondaryAttr.length > 0) {
+        // 计算会被消耗的含有二级属性的方块数量（最多显示前4个合成所需的）
+        const blocksToConsume = blocks.slice(0, mergeCount * 4);
+        const secondaryBlocksToConsume = blocksToConsume.filter(block => {
+            if (block.isSpecial) return false;
+            return block.cells.some(cell => cell.secondaryAttr !== null);
+        });
+        
+        if (secondaryBlocksToConsume.length > 0) {
+            // 显示二级属性详情
+            let detailText = '此次合成会消耗以下含有二级属性的方块：\n\n';
+            secondaryBlocksToConsume.forEach((block, index) => {
+                detailText += `${index + 1}. 等级 ${block.level} 方块：\n`;
+                block.cells.forEach((cell, cellIndex) => {
+                    if (cell.secondaryAttr) {
+                        detailText += `   - 格子${cellIndex + 1}: ${SECONDARY_ATTR_NAMES[cell.secondaryAttr]} ${cell.secondaryValue.toFixed(2)}%\n`;
+                    }
+                });
+                detailText += '\n';
+            });
+            
+            const confirmMessage = `此次合成会消耗 ${secondaryBlocksToConsume.length} 个含有二级属性的方块，是否继续？\n\n${detailText}`;
+            if (!confirm(confirmMessage)) {
+                return; // 用户取消合成
+            }
+        }
+    }
+    
     // 移除用于合成的方块
     for (let i = 0; i < mergeCount * 4; i++) {
         const index = playerInventory.indexOf(blocks[i]);
@@ -1632,14 +1795,6 @@ function loadGameData() {
             return block;
         });
         
-        // 恢复方块使用情况
-        blockUsageMap.clear();
-        if (data.blockUsage) {
-            Object.keys(data.blockUsage).forEach(blockId => {
-                blockUsageMap.set(blockId, new Set(data.blockUsage[blockId]));
-            });
-        }
-        
         // 恢复当前方案索引
         if (data.currentSchemeIndex !== undefined) {
             currentSchemeIndex = Math.min(data.currentSchemeIndex, gameBoards.length - 1);
@@ -1676,6 +1831,10 @@ function loadGameData() {
             playerRole = data.playerRole;
         }
         
+        // 先恢复所有方案的数据（放置方块到底板）
+        // 然后根据恢复的方块数据重新构建 blockUsageMap
+        blockUsageMap.clear();
+        
         // 恢复所有方案的数据
         if (data.schemes && Array.isArray(data.schemes)) {
             data.schemes.forEach((schemeData, index) => {
@@ -1697,6 +1856,11 @@ function loadGameData() {
                         const block = playerInventory.find(b => b.id === blockId);
                         if (block) {
                             board.placeBlock(block, x, y);
+                            // 更新 blockUsageMap
+                            if (!blockUsageMap.has(blockId)) {
+                                blockUsageMap.set(blockId, new Set());
+                            }
+                            blockUsageMap.get(blockId).add(index);
                         }
                     });
                 }
@@ -1707,6 +1871,11 @@ function loadGameData() {
                         const block = playerInventory.find(b => b.id === blockId);
                         if (block) {
                             board.placeBlock(block, x, y);
+                            // 更新 blockUsageMap
+                            if (!blockUsageMap.has(blockId)) {
+                                blockUsageMap.set(blockId, new Set());
+                            }
+                            blockUsageMap.get(blockId).add(index);
                         }
                     });
                 }
@@ -1718,12 +1887,22 @@ function loadGameData() {
                 const block = playerInventory.find(b => b.id === blockId);
                 if (block) {
                     board.placeBlock(block, x, y);
+                    // 更新 blockUsageMap
+                    if (!blockUsageMap.has(blockId)) {
+                        blockUsageMap.set(blockId, new Set());
+                    }
+                    blockUsageMap.get(blockId).add(0); // 旧格式只有第一个方案
                 }
             });
             data.board.specialBlocks.forEach(({ blockId, x, y }) => {
                 const block = playerInventory.find(b => b.id === blockId);
                 if (block) {
                     board.placeBlock(block, x, y);
+                    // 更新 blockUsageMap
+                    if (!blockUsageMap.has(blockId)) {
+                        blockUsageMap.set(blockId, new Set());
+                    }
+                    blockUsageMap.get(blockId).add(0); // 旧格式只有第一个方案
                 }
             });
             // 扩展格子
@@ -2327,9 +2506,19 @@ function initializeConfigPage() {
         alert('配置已保存！需要刷新页面使配置生效。');
     });
     
+    // 保存为默认配置
+    document.getElementById('save-as-default-btn').addEventListener('click', () => {
+        if (confirm('确定要将当前配置保存为默认配置吗？重置系统时将使用此配置作为默认值。')) {
+            saveAsDefaultConfig();
+        }
+    });
+    
     // 重置配置
     document.getElementById('reset-config-btn').addEventListener('click', () => {
-        if (confirm('确定要重置为默认配置吗？')) {
+        if (confirm('确定要重置为默认配置吗？这将清除所有手动配置的数据，恢复到初始默认值。')) {
+            // 清除手动配置的数据
+            localStorage.removeItem('gameConfig');
+            // 重新加载页面，使用 data.js 中的原始默认值
             location.reload();
         }
     });
@@ -2501,79 +2690,40 @@ function saveConfigData() {
     
     localStorage.setItem('gameConfig', JSON.stringify(configToSave));
     
+    // 保存配置时自动增加版本号
+    incrementVersion();
+    
     console.log('配置已保存');
+}
+
+// 保存当前配置为默认配置
+function saveAsDefaultConfig() {
+    // 先保存当前配置到 gameConfig
+    saveConfigData();
+    
+    // 获取当前配置并保存为默认配置
+    const currentConfig = localStorage.getItem('gameConfig');
+    if (currentConfig) {
+        localStorage.setItem('defaultGameConfig', currentConfig);
+        alert('已保存为默认配置！重置系统时将使用此配置。');
+        console.log('默认配置已保存');
+    } else {
+        alert('保存失败：当前没有可用的配置数据。');
+    }
 }
 
 // 加载配置数据
 function loadConfigData() {
-    const configStr = localStorage.getItem('gameConfig');
+    // 优先从默认配置文件加载，如果没有则从当前配置加载
+    let configStr = localStorage.getItem('defaultGameConfig');
+    if (!configStr) {
+        configStr = localStorage.getItem('gameConfig');
+    }
     if (!configStr) return;
     
     try {
         const config = JSON.parse(configStr);
-        
-        // 完全覆盖全局配置对象（而不是合并）
-        if (config.ATTRIBUTE_LEVEL_TABLE) {
-            // 清空原有配置，完全替换
-            Object.keys(ATTRIBUTE_LEVEL_TABLE).forEach(key => delete ATTRIBUTE_LEVEL_TABLE[key]);
-            Object.assign(ATTRIBUTE_LEVEL_TABLE, config.ATTRIBUTE_LEVEL_TABLE);
-        }
-        if (config.SPECIAL_BLOCK_RANGE) {
-            // 清空原有配置，完全替换
-            Object.keys(SPECIAL_BLOCK_RANGE).forEach(key => delete SPECIAL_BLOCK_RANGE[key]);
-            Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
-        }
-        if (config.GACHA_PROBABILITY) {
-            // 完全替换宝箱概率配置
-            if (config.GACHA_PROBABILITY.low) {
-                GACHA_PROBABILITY.low = { ...config.GACHA_PROBABILITY.low };
-            }
-            if (config.GACHA_PROBABILITY.high) {
-                GACHA_PROBABILITY.high = { ...config.GACHA_PROBABILITY.high };
-            }
-        }
-        if (config.SECONDARY_ATTRIBUTE_CONFIG) {
-            // 完全替换二级属性配置
-            if (config.SECONDARY_ATTRIBUTE_CONFIG.probability) {
-                SECONDARY_ATTRIBUTE_CONFIG.probability = { ...config.SECONDARY_ATTRIBUTE_CONFIG.probability };
-            }
-            if (config.SECONDARY_ATTRIBUTE_CONFIG.values) {
-                SECONDARY_ATTRIBUTE_CONFIG.values = { ...config.SECONDARY_ATTRIBUTE_CONFIG.values };
-            }
-        }
-        if (config.SPECIAL_BLOCK_BONUS) {
-            // 清空原有配置，完全替换
-            Object.keys(SPECIAL_BLOCK_BONUS).forEach(key => delete SPECIAL_BLOCK_BONUS[key]);
-            Object.assign(SPECIAL_BLOCK_BONUS, config.SPECIAL_BLOCK_BONUS);
-        }
-        if (config.BOARD_EXPANSION_RULES) {
-            BOARD_EXPANSION_RULES.length = 0;
-            BOARD_EXPANSION_RULES.push(...config.BOARD_EXPANSION_RULES);
-            BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
-        }
-        if (config.FULL_BOARD_BONUS !== undefined) {
-            FULL_BOARD_BONUS = config.FULL_BOARD_BONUS;
-        }
-        if (config.ACTIVE_DAY_REWARDS) {
-            // 兼容旧格式（按天数）和新格式（每天固定）
-            Object.keys(config.ACTIVE_DAY_REWARDS).forEach(role => {
-                const roleData = config.ACTIVE_DAY_REWARDS[role];
-                // 如果是对象且没有数字键，说明是新格式（每天固定）
-                if (roleData && typeof roleData === 'object' && !Object.keys(roleData).some(k => !isNaN(k))) {
-                    ACTIVE_DAY_REWARDS[role] = roleData;
-                } else {
-                    // 旧格式，取第一天的奖励作为每天固定奖励
-                    const firstDay = Object.keys(roleData).map(Number).sort((a, b) => a - b)[0];
-                    if (firstDay !== undefined) {
-                        ACTIVE_DAY_REWARDS[role] = roleData[firstDay];
-                    }
-                }
-            });
-        }
-        if (config.BOARD_SCHEME_COUNT !== undefined) {
-            BOARD_SCHEME_COUNT = config.BOARD_SCHEME_COUNT;
-        }
-
+        loadConfigFromObject(config);
         console.log('配置数据已加载');
     } catch (e) {
         console.error('加载配置数据失败:', e);

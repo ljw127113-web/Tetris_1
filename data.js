@@ -89,12 +89,12 @@ const TETRIS_SHAPES = [
 
 // 二级属性图标映射
 const SECONDARY_ATTR_ICONS = {
-    'crit': '⚡',
-    'anti-crit': '🛡',
-    'dodge': '💨',
-    'anti-dodge': '🔒',
-    'armor-pen': '⚔',
-    'anti-armor-pen': '🛡'
+    'crit': '⚡',           // 暴击率 - 闪电
+    'anti-crit': '🛡',      // 抗暴击率 - 盾牌
+    'dodge': '💨',          // 闪避率 - 风
+    'anti-dodge': '🔒',     // 抗闪避率 - 锁
+    'armor-pen': '⚔',      // 破甲率 - 交叉剑
+    'anti-armor-pen': '🔰' // 抗破甲率 - 新手标志
 };
 
 // 二级属性名称映射

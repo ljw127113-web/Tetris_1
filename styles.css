@@ -1016,6 +1016,7 @@ body {
 }
 
 .save-config-btn,
+.save-as-default-btn,
 .reset-config-btn {
     padding: 12px 30px;
     border: none;
@@ -1032,6 +1033,16 @@ body {
 
 .save-config-btn:hover {
     background: #27ae60;
+    transform: translateY(-2px);
+}
+
+.save-as-default-btn {
+    background: #3498db;
+    color: white;
+}
+
+.save-as-default-btn:hover {
+    background: #2980b9;
     transform: translateY(-2px);
 }
 
