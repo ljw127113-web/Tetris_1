@@ -343,6 +343,7 @@ class GachaSystem {
     }
 
     static openLowChest() {
+        // 低级宝箱只能获取普通方块（1-3级），不能获取特殊方块
         const rand = Math.random();
         let level = 1;
         if (rand < GACHA_PROBABILITY.low[1]) {
@@ -355,13 +356,15 @@ class GachaSystem {
         
         const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
         const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
-        return new Block(level, shape, rotation);
+        // 明确指定 isSpecial = false，确保不会生成特殊方块
+        return new Block(level, shape, rotation, false);
     }
 
     static openHighChest() {
+        // 高级宝箱可以获取普通方块（2-5级）和特殊方块（1级）
         const rand = Math.random();
         
-        // 检查特殊方块（只能抽取到1级）
+        // 检查特殊方块（只能抽取到1级，且只能在高级宝箱中获取）
         if (rand < GACHA_PROBABILITY.high.special) {
             return new Block(1, 0, 0, true);
         }

@@ -36,10 +36,10 @@ const SECONDARY_ATTRIBUTE_CONFIG = {
 
 // 表格2: 特殊方块影响区域（坐标偏移）- 覆盖面积已减半
 const SPECIAL_BLOCK_RANGE = {
-    1: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]],  // 十字形（保持不变，5格）
+    1: [[0, 0], [1, 0], [-1, 0]],  //   横向
     2: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]],  // 减半：从3x3（9格）减为十字形（5格）
-    3: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]],  // 减半：从5x5十字（13格）减为十字形（5格）
-    4: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]],  // 减半：从21格减为3x3（9格）
+    3: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]], // 减半：从5x5十字（13格）减为十字形（7格）
+    4: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]],  // 减半：从21格减为9格
     5: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], 
         [2, 0], [-2, 0], [0, 2], [0, -2]]  // 减半：从29格减为5x5十字（13格）
 };
@@ -116,14 +116,14 @@ const PRIMARY_ATTR_NAMES = {
 
 // 底板扩展规则（总等级 -> 格子数量）
 const BOARD_EXPANSION_RULES = [
-    { level: 10, count: 28 },
-    { level: 15, count: 31 },
-    { level: 20, count: 34 },
-    { level: 25, count: 37 },
-    { level: 30, count: 40 },
-    { level: 35, count: 43 },
-    { level: 40, count: 46 },
-    { level: 45, count: 49 }
+    { level: 15, count: 28 },
+    { level: 30, count: 31 },
+    { level: 45, count: 34 },
+    { level: 60, count: 37 },
+    { level: 75, count: 40 },
+    { level: 90, count: 43 },
+    { level: 105, count: 46 },
+    { level: 120, count: 49 }
 ];
 
 // 底板填满后的属性加成比例（1.5表示增加50%，即最终为150%）
@@ -131,11 +131,11 @@ let FULL_BOARD_BONUS = 1.5;
 
 // 活跃天数奖励配置（每个角色每天固定奖励）
 let ACTIVE_DAY_REWARDS = {
-    '非R': { silverKeys: 1, goldKeys: 0 },
-    '小R': { silverKeys: 2, goldKeys: 0 },
-    '中R': { silverKeys: 3, goldKeys: 1 },
-    '大R': { silverKeys: 5, goldKeys: 2 },
-    '超R': { silverKeys: 10, goldKeys: 5 }
+    '非R': { silverKeys: 15, goldKeys: 1 },
+    '小R': { silverKeys: 20, goldKeys: 2 },
+    '中R': { silverKeys: 25, goldKeys: 5 },
+    '大R': { silverKeys: 30, goldKeys: 8 },
+    '超R': { silverKeys: 30, goldKeys: 12 }
 };
 
 // 底板方案数量配置

@@ -2712,6 +2712,70 @@ function saveAsDefaultConfig() {
     }
 }
 
+// 导出配置为JSON文件
+function exportConfigToJSON() {
+    try {
+        // 先保存当前配置，确保获取最新数据（包括从UI读取的值）
+        saveConfigData();
+        
+        // 获取当前配置
+        let currentConfig = localStorage.getItem('gameConfig');
+        
+        // 如果没有保存的配置，从内存中的当前值构建配置对象
+        if (!currentConfig) {
+            // 从内存中的全局变量构建完整的配置对象
+            const configToExport = {
+                ATTRIBUTE_LEVEL_TABLE: JSON.parse(JSON.stringify(ATTRIBUTE_LEVEL_TABLE)),
+                SPECIAL_BLOCK_RANGE: JSON.parse(JSON.stringify(SPECIAL_BLOCK_RANGE)),
+                GACHA_PROBABILITY: JSON.parse(JSON.stringify(GACHA_PROBABILITY)),
+                SECONDARY_ATTRIBUTE_CONFIG: JSON.parse(JSON.stringify(SECONDARY_ATTRIBUTE_CONFIG)),
+                SPECIAL_BLOCK_BONUS: JSON.parse(JSON.stringify(SPECIAL_BLOCK_BONUS)),
+                FULL_BOARD_BONUS: FULL_BOARD_BONUS,
+                BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT,
+                BOARD_EXPANSION_RULES: JSON.parse(JSON.stringify(BOARD_EXPANSION_RULES)),
+                ACTIVE_DAY_REWARDS: JSON.parse(JSON.stringify(ACTIVE_DAY_REWARDS))
+            };
+            
+            currentConfig = JSON.stringify(configToExport);
+        }
+        
+        const config = JSON.parse(currentConfig);
+        
+        // 添加导出元数据（可选）
+        const exportData = {
+            exportDate: new Date().toISOString(),
+            version: getVersion(),
+            description: "游戏数据配置导出文件",
+            config: config
+        };
+        
+        // 格式化JSON（美化输出）
+        const jsonString = JSON.stringify(exportData, null, 2);
+        
+        // 创建Blob对象
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        
+        // 创建下载链接
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const timestamp = new Date().toISOString().slice(0, 19).replace(/:/g, '-');
+        a.download = `game-config-${timestamp}.json`; // 使用日期时间作为文件名
+        document.body.appendChild(a);
+        a.click();
+        
+        // 清理
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        
+        alert('配置已成功导出为JSON文件！\n文件名: game-config-' + timestamp + '.json');
+        console.log('配置已导出:', exportData);
+    } catch (e) {
+        console.error('导出配置失败:', e);
+        alert('导出配置失败：' + e.message);
+    }
+}
+
 // 加载配置数据
 function loadConfigData() {
     // 优先从默认配置文件加载，如果没有则从当前配置加载
