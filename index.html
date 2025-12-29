@@ -21,9 +21,16 @@
                 <div class="board-wrapper">
                     <div id="game-board" class="game-board"></div>
                     <div class="board-info">
+                        <div class="scheme-selector">
+                            <label>当前方案：</label>
+                            <select id="scheme-select" class="scheme-select"></select>
+                        </div>
                         <h3>属性总值</h3>
                         <div id="attribute-display" class="attribute-display"></div>
-                        <button id="clear-board-btn" class="clear-board-btn">清空底板</button>
+                        <div id="board-active-days-display" class="active-days-info-board">活跃天数: 第 1 天</div>
+                        <div id="silver-keys-display" class="keys-display">银色钥匙: 0</div>
+                        <div id="gold-keys-display" class="keys-display gold-keys">金色钥匙: 0</div>
+                        <button id="clear-board-btn" class="clear-board-btn">清空当前方案</button>
                         <button id="reset-system-btn" class="reset-system-btn">重置系统</button>
                     </div>
                 </div>
@@ -42,20 +49,23 @@
                     <div class="gacha-box">
                         <h3>低级宝箱</h3>
                         <p>可获得1-3级方块</p>
+                        <div id="gacha-silver-keys-display" class="keys-display">银色钥匙: 0</div>
                         <div class="gacha-buttons">
-                            <button class="gacha-btn" data-type="low" data-count="1">开1次</button>
-                            <button class="gacha-btn" data-type="low" data-count="10">开10次</button>
+                            <button class="gacha-btn" data-type="low" data-count="1">开1次 (消耗1把钥匙)</button>
+                            <button class="gacha-btn" data-type="low" data-count="10">开10次 (消耗10把钥匙)</button>
                         </div>
                     </div>
                     <div class="gacha-box">
                         <h3>高级宝箱</h3>
                         <p>可获得2-5级方块和特殊方块</p>
+                        <div id="gacha-gold-keys-display" class="keys-display gold-keys">金色钥匙: 0</div>
                         <div class="gacha-buttons">
-                            <button class="gacha-btn" data-type="high" data-count="1">开1次</button>
-                            <button class="gacha-btn" data-type="high" data-count="10">开10次</button>
+                            <button class="gacha-btn" data-type="high" data-count="1">开1次 (消耗1把钥匙)</button>
+                            <button class="gacha-btn" data-type="high" data-count="10">开10次 (消耗10把钥匙)</button>
                         </div>
                     </div>
                 </div>
+                <div id="active-days-display" class="active-days-section"></div>
                 <div id="gacha-results" class="gacha-results"></div>
             </div>
         </div>
@@ -67,6 +77,8 @@
                 <div class="upgrade-controls">
                     <button id="auto-merge-btn" class="auto-merge-btn">一键合成</button>
                     <select id="merge-level-select"></select>
+                    <button id="manual-merge-btn" class="manual-merge-btn" style="display: none;">合成选中方块 (0/4)</button>
+                    <button id="clear-selection-btn" class="clear-selection-btn" style="display: none;">清除选择</button>
                 </div>
                 <div id="upgrade-inventory" class="upgrade-inventory"></div>
             </div>
@@ -84,6 +96,8 @@
                     <button class="tab-btn" data-tab="table5">特殊方块加成</button>
                     <button class="tab-btn" data-tab="table6">底板扩展规则</button>
                     <button class="tab-btn" data-tab="table7">全满加成</button>
+                    <button class="tab-btn" data-tab="table8">角色配置</button>
+                    <button class="tab-btn" data-tab="table9">方案数量</button>
                 </div>
                 <div id="config-page-content" class="config-page-content"></div>
                 <div class="config-actions">
@@ -110,7 +124,7 @@
 
     <!-- 版本号显示 -->
     <div class="version-info">
-        <span>版本号: 1.0.10</span>
+        <span>版本号: 1.1.0</span>
     </div>
 
     <script src="data.js"></script>

@@ -361,10 +361,9 @@ class GachaSystem {
     static openHighChest() {
         const rand = Math.random();
         
-        // 检查特殊方块
+        // 检查特殊方块（只能抽取到1级）
         if (rand < GACHA_PROBABILITY.high.special) {
-            const level = Math.floor(Math.random() * 5) + 1;
-            return new Block(level, 0, 0, true);
+            return new Block(1, 0, 0, true);
         }
         
         // 普通方块

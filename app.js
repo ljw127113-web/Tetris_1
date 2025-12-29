@@ -1,16 +1,27 @@
 // 主应用逻辑
 
-let gameBoard = new GameBoard();
+let gameBoards = []; // 多个方案的游戏板
+let currentSchemeIndex = 0; // 当前方案索引
 let playerInventory = []; // 玩家拥有的方块
-let placedBlocks = new Set(); // 已放置的方块ID
-let attributeCalculator = new AttributeCalculator(gameBoard);
+let blockUsageMap = new Map(); // 方块使用情况：blockId -> Set(schemeIndex)
+let attributeCalculators = []; // 每个方案的属性计算器
 let previousAttributes = {};
 let dragBlock = null;
 let dragOffset = { x: 0, y: 0 };
 let gachaCounts = { low: 0, high: 0 }; // 宝箱开启次数统计
+let silverKeys = 10; // 银色钥匙数量（初始10个）
+let goldKeys = 1; // 金色钥匙数量（初始1个）
+let activeDays = 0; // 活跃天数（从0天开始）
+let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
 
 // 初始化
 document.addEventListener('DOMContentLoaded', () => {
+    // 先加载配置，获取方案数量
+    loadConfigData();
+    
+    // 初始化多个方案
+    initializeGameBoards();
+    
     initializeNavigation();
     initializeBoard();
     initializeGacha();
@@ -21,10 +32,37 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // 加载保存的数据
     loadGameData();
-    loadConfigData();
     loadGachaCounts();
     updateGachaCounts();
+    updateSilverKeysDisplay();
+    updateGoldKeysDisplay();
+    updateActiveDaysDisplay();
 });
+
+// 初始化多个游戏板方案
+function initializeGameBoards() {
+    const schemeCount = BOARD_SCHEME_COUNT || 3;
+    gameBoards = [];
+    attributeCalculators = [];
+    
+    for (let i = 0; i < schemeCount; i++) {
+        const board = new GameBoard();
+        gameBoards.push(board);
+        attributeCalculators.push(new AttributeCalculator(board));
+    }
+    
+    currentSchemeIndex = 0;
+}
+
+// 获取当前方案的游戏板
+function getCurrentGameBoard() {
+    return gameBoards[currentSchemeIndex];
+}
+
+// 获取当前方案的属性计算器
+function getCurrentAttributeCalculator() {
+    return attributeCalculators[currentSchemeIndex];
+}
 
 // 导航切换
 function initializeNavigation() {
@@ -43,6 +81,11 @@ function initializeNavigation() {
                 renderUpgradeInventory();
             } else if (page === 'config') {
                 renderConfigPage();
+            } else if (page === 'gacha') {
+                // 切换到获取方块页面时，更新钥匙和活跃天数显示
+                updateSilverKeysDisplay();
+                updateGoldKeysDisplay();
+                updateActiveDaysDisplay();
             }
         });
     });
@@ -50,8 +93,34 @@ function initializeNavigation() {
 
 // 初始化底板
 function initializeBoard() {
+    initializeSchemeSelector();
     renderBoard();
     setupDragAndDrop();
+}
+
+// 初始化方案选择器
+function initializeSchemeSelector() {
+    const selector = document.getElementById('scheme-select');
+    if (!selector) return;
+    
+    selector.innerHTML = '';
+    for (let i = 0; i < gameBoards.length; i++) {
+        const option = document.createElement('option');
+        option.value = i;
+        option.textContent = `方案 ${i + 1}`;
+        if (i === currentSchemeIndex) {
+            option.selected = true;
+        }
+        selector.appendChild(option);
+    }
+    
+    selector.addEventListener('change', (e) => {
+        currentSchemeIndex = parseInt(e.target.value);
+        renderBoard();
+        renderInventory();
+        updateAttributeDisplay();
+        saveGameData();
+    });
 }
 
 // 渲染底板
@@ -60,6 +129,7 @@ function renderBoard() {
     board.innerHTML = '';
     board.classList.remove('full');
     
+    const gameBoard = getCurrentGameBoard();
     const coords = gameBoard.getAllCellCoords();
     const minX = Math.min(...coords.map(c => c.x));
     const maxX = Math.max(...coords.map(c => c.x));
@@ -121,21 +191,15 @@ function renderBoard() {
 
 // 在底板上渲染方块
 function renderBlockOnBoard(block, baseX, baseY, container, boardMinX, boardMinY) {
+    const gameBoard = getCurrentGameBoard(); // 获取当前方案的游戏板
+    
     const positions = block.getPositions(baseX, baseY);
     const minX = Math.min(...positions.map(([x]) => x));
     const minY = Math.min(...positions.map(([, y]) => y));
     const maxX = Math.max(...positions.map(([x]) => x));
     const maxY = Math.max(...positions.map(([, y]) => y));
     
-    // 调试日志：输出渲染位置
-    console.log('渲染方块:', {
-        blockId: block.id,
-        baseX, baseY,
-        minX, minY, maxX, maxY,
-        positions: positions,
-        containerX: container ? container.dataset.x : null,
-        containerY: container ? container.dataset.y : null
-    });
+    // 调试日志已移除（避免拖动时频繁输出）
     
     // 创建方块容器，覆盖整个方块区域
     // 方块容器直接添加到 board，位置相对于 board 的内容区域（不包括padding）
@@ -199,6 +263,10 @@ function renderBonusArrows() {
     const existingArrows = board.querySelectorAll('.bonus-arrow');
     existingArrows.forEach(arrow => arrow.remove());
     
+    // 移除之前的加成范围高亮
+    board.querySelectorAll('.bonus-range-highlight').forEach(el => el.remove());
+    
+    const gameBoard = getCurrentGameBoard();
     gameBoard.specialBlocks.forEach(({ block, x, y }) => {
         const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
         const coords = gameBoard.getAllCellCoords();
@@ -212,6 +280,7 @@ function renderBonusArrows() {
             const targetBlock = gameBoard.cells.get(key);
             
             if (targetBlock && !targetBlock.isSpecial) {
+                // 添加箭头
                 const arrow = document.createElement('div');
                 arrow.className = 'bonus-arrow';
                 arrow.textContent = '↑';
@@ -220,6 +289,18 @@ function renderBonusArrows() {
                 arrow.style.left = screenX + 'px';
                 arrow.style.top = screenY + 'px';
                 board.appendChild(arrow);
+                
+                // 添加加成范围高亮
+                const highlight = document.createElement('div');
+                highlight.className = 'bonus-range-highlight';
+                highlight.style.position = 'absolute';
+                highlight.style.left = (targetX - minX) * gameBoard.cellSize + 'px';
+                highlight.style.top = (targetY - minY) * gameBoard.cellSize + 'px';
+                highlight.style.width = gameBoard.cellSize + 'px';
+                highlight.style.height = gameBoard.cellSize + 'px';
+                highlight.style.pointerEvents = 'none';
+                highlight.style.zIndex = '8';
+                board.appendChild(highlight);
             }
         });
     });
@@ -240,9 +321,7 @@ function renderInventory() {
     
     sorted.forEach(block => {
         const blockEl = createBlockElement(block);
-        if (placedBlocks.has(block.id)) {
-            blockEl.classList.add('in-use');
-        }
+        // 使用状态已在 createBlockElement 中处理
         inventory.appendChild(blockEl);
     });
 }
@@ -252,6 +331,25 @@ function createBlockElement(block) {
     const container = document.createElement('div');
     container.className = 'block';
     container.dataset.blockId = block.id;
+    
+    // 检查方块使用状态并添加标识
+    const usage = blockUsageMap.get(block.id);
+    if (usage && usage.size > 0) {
+        if (usage.has(currentSchemeIndex)) {
+            // 在当前方案中使用 - 添加 in-use 类以禁用拖动
+            container.classList.add('in-use');
+            const indicator = document.createElement('div');
+            indicator.className = 'block-usage-indicator current';
+            indicator.title = '在当前方案中使用，无法拖动';
+            container.appendChild(indicator);
+        } else {
+            // 在其他方案中使用 - 不添加 in-use 类，因为可以在当前方案中使用
+            const indicator = document.createElement('div');
+            indicator.className = 'block-usage-indicator other';
+            indicator.title = '在其他方案中使用';
+            container.appendChild(indicator);
+        }
+    }
     
     if (block.isSpecial) {
         const specialEl = document.createElement('div');
@@ -337,18 +435,26 @@ function setupDragAndDrop() {
             const blockId = boardBlockEl.dataset.blockId;
             dragBlock = playerInventory.find(b => b.id == blockId);
             if (dragBlock) {
-                console.log('从底板拿起方块:', dragBlock.id);
+                // 从底板拿起方块
                 
+                const gameBoard = getCurrentGameBoard();
                 // 保存原位置（用于调试）
                 const oldBlockData = [...gameBoard.blocks, ...gameBoard.specialBlocks].find(b => b.block === dragBlock);
                 if (oldBlockData) {
                     dragBlock.oldPosition = { x: oldBlockData.x, y: oldBlockData.y };
-                    console.log('方块原位置:', dragBlock.oldPosition);
+                    // 方块原位置已保存
                 }
                 
                 // 从底板移除
                 gameBoard.removeBlock(dragBlock);
-                placedBlocks.delete(dragBlock.id);
+                // 更新方块使用情况
+                const usage = blockUsageMap.get(dragBlock.id);
+                if (usage) {
+                    usage.delete(currentSchemeIndex);
+                    if (usage.size === 0) {
+                        blockUsageMap.delete(dragBlock.id);
+                    }
+                }
                 renderBoard();
                 renderInventory();
                 updateAttributeDisplay();
@@ -429,6 +535,8 @@ function updateDragPosition(e) {
 function highlightBoardCells(e) {
     const board = document.getElementById('game-board');
     if (!board) return;
+    
+    const gameBoard = getCurrentGameBoard(); // 获取当前方案的游戏板
     
     const rect = board.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
@@ -533,6 +641,7 @@ function highlightBoardCells(e) {
 function renderBonusRangePreview(block, baseX, baseY, boardMinX, boardMinY) {
     const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
     const board = document.getElementById('game-board');
+    const gameBoard = getCurrentGameBoard();
     
     range.forEach(([dx, dy]) => {
         const targetX = baseX + dx;
@@ -564,6 +673,8 @@ function renderBonusRangePreview(block, baseX, baseY, boardMinX, boardMinY) {
 
 // 创建预览方块
 function createPreviewBlock(block, baseX, baseY, boardMinX, boardMinY) {
+    const gameBoard = getCurrentGameBoard(); // 获取当前方案的游戏板
+    
     const preview = document.createElement('div');
     preview.className = 'preview-block';
     
@@ -592,6 +703,8 @@ function handleDrop(e) {
     const board = document.getElementById('game-board');
     if (!board || !dragBlock || !dragBlock.cloneEl) return;
     
+    const gameBoard = getCurrentGameBoard(); // 获取当前方案的游戏板
+    
     const rect = board.getBoundingClientRect();
     const mouseX = e.clientX - rect.left;
     const mouseY = e.clientY - rect.top;
@@ -599,7 +712,8 @@ function handleDrop(e) {
     // 检查是否在底板范围内
     if (mouseX < 0 || mouseY < 0 || mouseX > rect.width || mouseY > rect.height) {
         // 如果拖出底板，且方块之前已放置，则移除
-        if (placedBlocks.has(dragBlock.id)) {
+        const usage = blockUsageMap.get(dragBlock.id);
+        if (usage && usage.has(currentSchemeIndex)) {
             // 方块已从底板移除（在mousedown时），只需要更新显示
             renderBoard();
             renderInventory();
@@ -636,41 +750,34 @@ function handleDrop(e) {
     const baseX = boardX - minShapeX;
     const baseY = boardY - minShapeY;
     
-    // 调试日志：输出鼠标位置和实际放入位置
-    console.log('=== 方块放置调试信息 ===');
-    console.log('鼠标位置:', { x: mouseX, y: mouseY });
-    console.log('克隆方块左上角位置:', { x: cloneTopLeftX, y: cloneTopLeftY });
-    console.log('计算出的格子坐标:', { cellX, cellY, boardX, boardY });
-    console.log('方块归一化形状:', normalizedShape);
-    console.log('方块最小坐标:', { minShapeX, minShapeY });
-    console.log('最终放置位置 (baseX, baseY):', { baseX, baseY });
-    const finalPositions = dragBlock.getPositions(baseX, baseY);
-    console.log('方块将占用的所有位置:', finalPositions);
-    console.log('========================');
-    
     // 严格检查：所有位置必须在底板范围内且为空
     if (gameBoard.canPlaceBlock(dragBlock, baseX, baseY)) {
         // 放置新位置（如果之前已放置，在mousedown时已移除）
         if (gameBoard.placeBlock(dragBlock, baseX, baseY)) {
-            console.log('✓ 方块成功放置到位置:', { baseX, baseY });
-            placedBlocks.add(dragBlock.id);
+            // 更新方块使用情况
+            if (!blockUsageMap.has(dragBlock.id)) {
+                blockUsageMap.set(dragBlock.id, new Set());
+            }
+            blockUsageMap.get(dragBlock.id).add(currentSchemeIndex);
+            
             renderBoard();
             renderInventory();
             updateAttributeDisplay();
             
-            // 扩展格子
+            // 扩展格子（同步到所有方案）
             const totalLevel = gameBoard.getTotalLevel();
-            gameBoard.expandCells(totalLevel);
-            if (gameBoard.currentCellCount > gameBoard.initialCellCount) {
+            const newCellCount = expandCellsForAllSchemes(totalLevel);
+            if (newCellCount > gameBoards[0].initialCellCount) {
                 renderBoard();
             }
         } else {
-            console.log('✗ 方块放置失败（placeBlock返回false）');
+            // 方块放置失败
         }
     } else {
-        console.log('✗ 方块无法放置（canPlaceBlock返回false）');
+        // 方块无法放置
         // 如果无法放置，且之前已从底板移除，需要恢复
-        if (!placedBlocks.has(dragBlock.id)) {
+        const usage = blockUsageMap.get(dragBlock.id);
+        if (!usage || !usage.has(currentSchemeIndex)) {
             // 尝试恢复到原位置（这里简化处理，实际可以保存原位置）
             // 如果无法恢复，方块会留在背包中
             renderBoard();
@@ -707,6 +814,9 @@ function updateAttributeDisplay() {
     const display = document.getElementById('attribute-display');
     display.innerHTML = '';
     
+    const gameBoard = getCurrentGameBoard();
+    const attributeCalculator = getCurrentAttributeCalculator();
+    
     // 显示总等级数
     const totalLevel = gameBoard.getTotalLevel();
     const levelInfo = document.createElement('div');
@@ -723,6 +833,9 @@ function updateAttributeDisplay() {
     `;
     display.appendChild(gachaInfo);
     
+    // 更新钥匙和活跃天数显示
+    updateSilverKeysDisplay();
+    updateGoldKeysDisplay();
     const attributes = attributeCalculator.calculateTotalAttributes();
     
     const attributeOrder = [
@@ -774,6 +887,130 @@ function updateAttributeDisplay() {
     previousAttributes = { ...attributes };
 }
 
+// 更新银色钥匙显示
+function updateSilverKeysDisplay() {
+    const display = document.getElementById('silver-keys-display');
+    if (display) {
+        display.textContent = `银色钥匙: ${silverKeys}`;
+    }
+    
+    // 更新宝箱页面的钥匙显示
+    const gachaDisplay = document.getElementById('gacha-silver-keys-display');
+    if (gachaDisplay) {
+        gachaDisplay.textContent = `银色钥匙: ${silverKeys}`;
+    }
+    
+    // 更新按钮状态（如果钥匙不足，禁用按钮）
+    document.querySelectorAll('.gacha-btn[data-type="low"]').forEach(btn => {
+        const count = parseInt(btn.dataset.count);
+        if (silverKeys < count) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+        } else {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    });
+}
+
+// 更新金色钥匙显示
+function updateGoldKeysDisplay() {
+    const display = document.getElementById('gold-keys-display');
+    if (display) {
+        display.textContent = `金色钥匙: ${goldKeys}`;
+    }
+    
+    // 更新宝箱页面的钥匙显示
+    const gachaDisplay = document.getElementById('gacha-gold-keys-display');
+    if (gachaDisplay) {
+        gachaDisplay.textContent = `金色钥匙: ${goldKeys}`;
+    }
+    
+    // 更新按钮状态（如果钥匙不足，禁用按钮）
+    document.querySelectorAll('.gacha-btn[data-type="high"]').forEach(btn => {
+        const count = parseInt(btn.dataset.count);
+        if (goldKeys < count) {
+            btn.disabled = true;
+            btn.style.opacity = '0.5';
+            btn.style.cursor = 'not-allowed';
+        } else {
+            btn.disabled = false;
+            btn.style.opacity = '1';
+            btn.style.cursor = 'pointer';
+        }
+    });
+}
+
+// 更新活跃天数显示
+function updateActiveDaysDisplay() {
+    // 更新获取方块页面的活跃天数显示
+    const display = document.getElementById('active-days-display');
+    if (display) {
+        display.innerHTML = `
+            <div class="active-days-info">
+                <h4>活跃天数: 第 ${activeDays} 天</h4>
+                <button id="next-day-btn" class="next-day-btn">下一天</button>
+            </div>
+        `;
+        
+        // 绑定下一天按钮事件
+        const nextDayBtn = document.getElementById('next-day-btn');
+        if (nextDayBtn && !nextDayBtn.dataset.bound) {
+            nextDayBtn.dataset.bound = 'true';
+            nextDayBtn.addEventListener('click', () => {
+                nextDay();
+            });
+        }
+    }
+    
+    // 更新底板页面的活跃天数显示
+    const boardDisplay = document.getElementById('board-active-days-display');
+    if (boardDisplay) {
+        boardDisplay.textContent = `活跃天数: 第 ${activeDays} 天`;
+    }
+}
+
+// 下一天功能
+function nextDay() {
+    activeDays++;
+    
+    // 根据角色获取每天固定奖励
+    const reward = getActiveDayReward();
+    if (reward) {
+        silverKeys += reward.silverKeys || 0;
+        goldKeys += reward.goldKeys || 0;
+        
+        updateSilverKeysDisplay();
+        updateGoldKeysDisplay();
+        updateActiveDaysDisplay();
+        saveGameData();
+        
+        let rewardText = `第 ${activeDays} 天奖励：\n`;
+        if (reward.silverKeys > 0) {
+            rewardText += `银色钥匙 x${reward.silverKeys}\n`;
+        }
+        if (reward.goldKeys > 0) {
+            rewardText += `金色钥匙 x${reward.goldKeys}\n`;
+        }
+        alert(rewardText);
+    } else {
+        updateActiveDaysDisplay();
+        saveGameData();
+        alert(`已进入第 ${activeDays} 天（无奖励）`);
+    }
+}
+
+// 获取活跃天数奖励（每天都有固定奖励）
+function getActiveDayReward() {
+    const roleReward = ACTIVE_DAY_REWARDS[playerRole];
+    if (!roleReward) return null;
+    
+    // 每天都有固定奖励
+    return roleReward;
+}
+
 // 初始化宝箱系统
 function initializeGacha() {
     document.querySelectorAll('.gacha-btn').forEach(btn => {
@@ -786,6 +1023,30 @@ function initializeGacha() {
 }
 
 function openChest(type, count) {
+    // 低级宝箱需要消耗银色钥匙
+    if (type === 'low') {
+        const requiredKeys = count;
+        if (silverKeys < requiredKeys) {
+            alert(`银色钥匙不足！需要 ${requiredKeys} 把，当前拥有 ${silverKeys} 把。`);
+            return;
+        }
+        // 消耗钥匙
+        silverKeys -= requiredKeys;
+        updateSilverKeysDisplay();
+    }
+    
+    // 高级宝箱需要消耗金色钥匙
+    if (type === 'high') {
+        const requiredKeys = count;
+        if (goldKeys < requiredKeys) {
+            alert(`金色钥匙不足！需要 ${requiredKeys} 把，当前拥有 ${goldKeys} 把。`);
+            return;
+        }
+        // 消耗钥匙
+        goldKeys -= requiredKeys;
+        updateGoldKeysDisplay();
+    }
+    
     const results = GachaSystem.openChest(type, count);
     results.forEach(block => {
         playerInventory.push(block);
@@ -810,13 +1071,167 @@ function displayGachaResults(results) {
     });
 }
 
+// 切换方块选择状态
+function toggleBlockSelection(block, blockEl) {
+    if (selectedBlockIds.has(block.id)) {
+        selectedBlockIds.delete(block.id);
+        blockEl.classList.remove('selected');
+    } else {
+        // 检查是否已经选择了4个方块
+        if (selectedBlockIds.size >= 4) {
+            alert('最多只能选择4个方块进行合成');
+            return;
+        }
+        // 检查是否选择了同等级同类型的方块
+        const selectedBlocks = Array.from(selectedBlockIds).map(id => 
+            playerInventory.find(b => b.id === id)
+        ).filter(b => b);
+        
+        if (selectedBlocks.length > 0) {
+            const firstBlock = selectedBlocks[0];
+            // 检查等级和类型是否一致
+            if (firstBlock.level !== block.level || firstBlock.isSpecial !== block.isSpecial) {
+                alert('只能选择相同等级和相同类型的方块进行合成');
+                return;
+            }
+        }
+        
+        selectedBlockIds.add(block.id);
+        blockEl.classList.add('selected');
+    }
+    updateManualMergeButton();
+}
+
+// 更新手动合成按钮
+function updateManualMergeButton() {
+    const manualBtn = document.getElementById('manual-merge-btn');
+    const clearBtn = document.getElementById('clear-selection-btn');
+    const count = selectedBlockIds.size;
+    
+    if (count > 0) {
+        manualBtn.style.display = 'inline-block';
+        clearBtn.style.display = 'inline-block';
+        manualBtn.textContent = `合成选中方块 (${count}/4)`;
+        manualBtn.disabled = count !== 4;
+    } else {
+        manualBtn.style.display = 'none';
+        clearBtn.style.display = 'none';
+    }
+}
+
+// 手动合成选中的方块
+function manualMerge() {
+    if (selectedBlockIds.size !== 4) {
+        alert('请选择4个方块进行合成');
+        return;
+    }
+    
+    const selectedBlocks = Array.from(selectedBlockIds).map(id => 
+        playerInventory.find(b => b.id === id)
+    ).filter(b => b);
+    
+    if (selectedBlocks.length !== 4) {
+        alert('选择的方块无效');
+        selectedBlockIds.clear();
+        renderUpgradeInventory();
+        return;
+    }
+    
+    // 检查等级和类型是否一致
+    const firstBlock = selectedBlocks[0];
+    const allSame = selectedBlocks.every(b => 
+        b.level === firstBlock.level && b.isSpecial === firstBlock.isSpecial
+    );
+    
+    if (!allSame) {
+        alert('只能合成相同等级和相同类型的方块');
+        selectedBlockIds.clear();
+        renderUpgradeInventory();
+        return;
+    }
+    
+    // 检查是否有二级属性的方块会被消耗
+    const blocksWithSecondaryAttr = selectedBlocks.filter(block => {
+        if (block.isSpecial) return false; // 特殊方块没有二级属性
+        return block.cells.some(cell => cell.secondaryAttr !== null);
+    });
+    
+    if (blocksWithSecondaryAttr.length > 0) {
+        // 显示二级属性详情
+        let detailText = '此次合成会消耗以下含有二级属性的方块：\n\n';
+        blocksWithSecondaryAttr.forEach((block, index) => {
+            detailText += `${index + 1}. 等级 ${block.level} 方块：\n`;
+            block.cells.forEach((cell, cellIndex) => {
+                if (cell.secondaryAttr) {
+                    detailText += `   - 格子${cellIndex + 1}: ${SECONDARY_ATTR_NAMES[cell.secondaryAttr]} ${cell.secondaryValue}%\n`;
+                }
+            });
+            detailText += '\n';
+        });
+        detailText += '是否继续？';
+        
+        if (!confirm(detailText)) {
+            return; // 用户取消
+        }
+    }
+    
+    // 执行合成
+    const level = firstBlock.level;
+    const isSpecial = firstBlock.isSpecial;
+    
+    // 移除用于合成的方块
+    selectedBlocks.forEach(block => {
+        const index = playerInventory.indexOf(block);
+        if (index > -1) {
+            playerInventory.splice(index, 1);
+        }
+    });
+    
+    // 创建新方块
+    const newLevel = level + 1;
+    if (isSpecial) {
+        const newBlock = new Block(newLevel, 0, 0, true);
+        playerInventory.push(newBlock);
+    } else {
+        const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
+        const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
+        const newBlock = new Block(newLevel, shape, rotation);
+        playerInventory.push(newBlock);
+    }
+    
+    // 清除选择
+    selectedBlockIds.clear();
+    
+    saveGameData();
+    renderUpgradeInventory();
+    renderInventory();
+    const blockType = isSpecial ? '特殊方块' : '普通方块';
+    alert(`成功合成 1 个等级 ${newLevel} 的${blockType}！`);
+}
+
+// 清除选择
+function clearSelection() {
+    selectedBlockIds.clear();
+    renderUpgradeInventory();
+}
+
 // 初始化升级系统
 function initializeUpgrade() {
     document.getElementById('auto-merge-btn').addEventListener('click', () => {
-        const level = parseInt(document.getElementById('merge-level-select').value);
-        if (level) {
-            autoMerge(level);
+        const levelStr = document.getElementById('merge-level-select').value;
+        if (levelStr) {
+            autoMerge(levelStr);
+        } else {
+            alert('请先选择要合成的等级和类型');
         }
+    });
+    
+    document.getElementById('manual-merge-btn').addEventListener('click', () => {
+        manualMerge();
+    });
+    
+    document.getElementById('clear-selection-btn').addEventListener('click', () => {
+        clearSelection();
     });
 }
 
@@ -841,19 +1256,23 @@ function initializeClearBoard() {
     }
 }
 
-// 清空底板
+// 清空当前方案的底板
 function clearBoard() {
-    // 移除所有已放置的方块
-    const allPlacedBlocks = Array.from(placedBlocks);
-    allPlacedBlocks.forEach(blockId => {
-        const block = playerInventory.find(b => b.id == blockId);
-        if (block) {
-            gameBoard.removeBlock(block);
+    const gameBoard = getCurrentGameBoard();
+    
+    // 移除当前方案中所有已放置的方块
+    const blocksToRemove = [...gameBoard.blocks, ...gameBoard.specialBlocks];
+    blocksToRemove.forEach(({ block }) => {
+        gameBoard.removeBlock(block);
+        // 更新方块使用情况
+        const usage = blockUsageMap.get(block.id);
+        if (usage) {
+            usage.delete(currentSchemeIndex);
+            if (usage.size === 0) {
+                blockUsageMap.delete(block.id);
+            }
         }
     });
-    
-    // 清空已放置标记
-    placedBlocks.clear();
     
     // 清空游戏板数据
     gameBoard.blocks = [];
@@ -873,103 +1292,247 @@ function clearBoard() {
     // 保存数据
     saveGameData();
     
-    console.log('底板已清空');
+    console.log('当前方案底板已清空');
+}
+
+// 扩展所有方案的格子（同步扩展）
+function expandCellsForAllSchemes(totalLevel) {
+    let maxCellCount = 0;
+    
+    // 找到所有方案中最大的格子数
+    gameBoards.forEach(board => {
+        if (board.currentCellCount > maxCellCount) {
+            maxCellCount = board.currentCellCount;
+        }
+    });
+    
+    // 尝试扩展所有方案到新的格子数
+    for (let rule of BOARD_EXPANSION_RULES) {
+        if (totalLevel >= rule.level && maxCellCount < rule.count) {
+            const newCellCount = rule.count;
+            
+            // 同步扩展所有方案
+            gameBoards.forEach(board => {
+                if (board.currentCellCount < newCellCount) {
+                    const coords = board.generateSpiralCoordinates(newCellCount);
+                    coords.forEach(([x, y]) => {
+                        const key = `${x},${y}`;
+                        if (!board.cells.has(key)) {
+                            board.cells.set(key, null);
+                        }
+                    });
+                    board.currentCellCount = newCellCount;
+                }
+            });
+            
+            return newCellCount;
+        }
+    }
+    
+    return maxCellCount;
 }
 
 // 重置系统
+// 注意：此函数只重置游戏数据（方块、底板等），不会清除数据配置（gameConfig）
+// 手动配置的数据会保留，不会被重置
+// 活跃天数会保留，不会被重置
+// 银色钥匙和金色钥匙会重置为初始值（10个银色钥匙和1个金色钥匙）
 function resetSystem() {
-    // 1. 清空底板
-    clearBoard();
+    // 1. 清空所有方案的底板
+    gameBoards.forEach((board) => {
+        const blocksToRemove = [...board.blocks, ...board.specialBlocks];
+        blocksToRemove.forEach(({ block }) => {
+            board.removeBlock(block);
+        });
+        board.blocks = [];
+        board.specialBlocks = [];
+        board.cells.clear();
+        board.currentCellCount = board.initialCellCount;
+        board.generateInitialCells();
+    });
     
     // 2. 删除所有方块和特殊方块
     playerInventory = [];
-    placedBlocks.clear();
-    
-    // 3. 重置游戏板格子数到初始状态
-    gameBoard.cells.clear();
-    gameBoard.blocks = [];
-    gameBoard.specialBlocks = [];
-    gameBoard.currentCellCount = gameBoard.initialCellCount;
-    
-    // 4. 重新生成初始25个格子
-    gameBoard.generateInitialCells();
+    blockUsageMap.clear();
     
     // 5. 重置宝箱开启次数
     gachaCounts = { low: 0, high: 0 };
     updateGachaCounts();
     
-    // 6. 重新渲染
+    // 6. 重置钥匙数量为初始值
+    silverKeys = 10;
+    goldKeys = 1;
+    updateSilverKeysDisplay();
+    updateGoldKeysDisplay();
+    // 注意：活跃天数不会被重置，会保留
+    
+    // 6. 清除选择状态
+    selectedBlockIds.clear();
+    
+    // 7. 重新渲染
     renderBoard();
     renderInventory();
     updateAttributeDisplay();
     
-    // 7. 保存数据
+    // 7. 保存游戏数据（不包含配置数据，配置数据会保留）
     saveGameData();
     
-    console.log('系统已重置');
+    console.log('系统已重置（数据配置已保留）');
 }
+
+// 存储选中的方块ID（用于手动合成）
+let selectedBlockIds = new Set();
 
 function renderUpgradeInventory() {
     const container = document.getElementById('upgrade-inventory');
     container.innerHTML = '';
     
-    // 按等级分组
-    const byLevel = {};
+    // 按等级和类型分组（普通方块和特殊方块分开）
+    const byLevelNormal = {};
+    const byLevelSpecial = {};
+    
     playerInventory.forEach(block => {
-        if (placedBlocks.has(block.id)) return; // 跳过已放置的
-        if (block.isSpecial) return; // 跳过特殊方块
+        // 检查方块是否在任何方案中使用
+        const usage = blockUsageMap.get(block.id);
+        if (usage && usage.size > 0) return; // 跳过已使用的方块
         
-        if (!byLevel[block.level]) {
-            byLevel[block.level] = [];
+        if (block.isSpecial) {
+            // 特殊方块
+            if (!byLevelSpecial[block.level]) {
+                byLevelSpecial[block.level] = [];
+            }
+            byLevelSpecial[block.level].push(block);
+        } else {
+            // 普通方块
+            if (!byLevelNormal[block.level]) {
+                byLevelNormal[block.level] = [];
+            }
+            byLevelNormal[block.level].push(block);
         }
-        byLevel[block.level].push(block);
     });
+    
+    // 更新手动合成按钮显示
+    updateManualMergeButton();
     
     // 更新选择器
     const select = document.getElementById('merge-level-select');
-    select.innerHTML = '<option value="">选择等级</option>';
-    Object.keys(byLevel).sort((a, b) => a - b).forEach(level => {
-        const count = byLevel[level].length;
+    select.innerHTML = '<option value="">选择等级和类型</option>';
+    
+    // 添加普通方块选项
+    Object.keys(byLevelNormal).sort((a, b) => a - b).forEach(level => {
+        const count = byLevelNormal[level].length;
         const canMerge = Math.floor(count / 4);
         if (canMerge > 0) {
             const option = document.createElement('option');
-            option.value = level;
-            option.textContent = `等级 ${level} (剩余 ${count} 个，可合成 ${canMerge} 个)`;
+            option.value = `normal-${level}`;
+            option.textContent = `普通方块 等级 ${level} (剩余 ${count} 个，可合成 ${canMerge} 个)`;
             select.appendChild(option);
         }
     });
     
-    // 渲染方块
-    Object.keys(byLevel).sort((a, b) => b - a).forEach(level => {
-        const levelDiv = document.createElement('div');
-        levelDiv.style.width = '100%';
-        levelDiv.style.marginBottom = '20px';
-        
-        const title = document.createElement('h4');
-        title.textContent = `等级 ${level} (${byLevel[level].length} 个)`;
-        levelDiv.appendChild(title);
-        
-        const grid = document.createElement('div');
-        grid.style.display = 'flex';
-        grid.style.flexWrap = 'wrap';
-        grid.style.gap = '10px';
-        
-        byLevel[level].forEach(block => {
-            const blockEl = createBlockElement(block);
-            grid.appendChild(blockEl);
-        });
-        
-        levelDiv.appendChild(grid);
-        container.appendChild(levelDiv);
+    // 添加特殊方块选项
+    Object.keys(byLevelSpecial).sort((a, b) => a - b).forEach(level => {
+        const count = byLevelSpecial[level].length;
+        const canMerge = Math.floor(count / 4);
+        if (canMerge > 0) {
+            const option = document.createElement('option');
+            option.value = `special-${level}`;
+            option.textContent = `特殊方块 等级 ${level} (剩余 ${count} 个，可合成 ${canMerge} 个)`;
+            select.appendChild(option);
+        }
     });
+    
+    // 渲染普通方块
+    if (Object.keys(byLevelNormal).length > 0) {
+        const normalTitle = document.createElement('h3');
+        normalTitle.textContent = '普通方块';
+        normalTitle.style.marginTop = '20px';
+        normalTitle.style.marginBottom = '15px';
+        normalTitle.style.color = '#2c3e50';
+        container.appendChild(normalTitle);
+        
+        Object.keys(byLevelNormal).sort((a, b) => b - a).forEach(level => {
+            const levelDiv = document.createElement('div');
+            levelDiv.style.width = '100%';
+            levelDiv.style.marginBottom = '20px';
+            
+            const title = document.createElement('h4');
+            title.textContent = `等级 ${level} (${byLevelNormal[level].length} 个)`;
+            levelDiv.appendChild(title);
+            
+            const grid = document.createElement('div');
+            grid.style.display = 'flex';
+            grid.style.flexWrap = 'wrap';
+            grid.style.gap = '10px';
+            
+            byLevelNormal[level].forEach(block => {
+                const blockEl = createBlockElement(block);
+                // 添加点击选择功能
+                blockEl.classList.add('selectable-block');
+                if (selectedBlockIds.has(block.id)) {
+                    blockEl.classList.add('selected');
+                }
+                blockEl.addEventListener('click', () => toggleBlockSelection(block, blockEl));
+                grid.appendChild(blockEl);
+            });
+            
+            levelDiv.appendChild(grid);
+            container.appendChild(levelDiv);
+        });
+    }
+    
+    // 渲染特殊方块
+    if (Object.keys(byLevelSpecial).length > 0) {
+        const specialTitle = document.createElement('h3');
+        specialTitle.textContent = '特殊方块';
+        specialTitle.style.marginTop = '20px';
+        specialTitle.style.marginBottom = '15px';
+        specialTitle.style.color = '#9b59b6';
+        container.appendChild(specialTitle);
+        
+        Object.keys(byLevelSpecial).sort((a, b) => b - a).forEach(level => {
+            const levelDiv = document.createElement('div');
+            levelDiv.style.width = '100%';
+            levelDiv.style.marginBottom = '20px';
+            
+            const title = document.createElement('h4');
+            title.textContent = `等级 ${level} (${byLevelSpecial[level].length} 个)`;
+            levelDiv.appendChild(title);
+            
+            const grid = document.createElement('div');
+            grid.style.display = 'flex';
+            grid.style.flexWrap = 'wrap';
+            grid.style.gap = '10px';
+            
+            byLevelSpecial[level].forEach(block => {
+                const blockEl = createBlockElement(block);
+                // 添加点击选择功能
+                blockEl.classList.add('selectable-block');
+                if (selectedBlockIds.has(block.id)) {
+                    blockEl.classList.add('selected');
+                }
+                blockEl.addEventListener('click', () => toggleBlockSelection(block, blockEl));
+                grid.appendChild(blockEl);
+            });
+            
+            levelDiv.appendChild(grid);
+            container.appendChild(levelDiv);
+        });
+    }
 }
 
-function autoMerge(level) {
-    const blocks = playerInventory.filter(b => 
-        !placedBlocks.has(b.id) && 
-        !b.isSpecial && 
-        b.level === level
-    );
+function autoMerge(levelStr) {
+    // 解析选择的值：格式为 "normal-1" 或 "special-1"
+    const [type, level] = levelStr.split('-');
+    const isSpecial = type === 'special';
+    const levelNum = parseInt(level);
+    
+    // 检查方块是否在任何方案中使用
+    const blocks = playerInventory.filter(b => {
+        const usage = blockUsageMap.get(b.id);
+        const isUsed = usage && usage.size > 0;
+        return !isUsed && b.isSpecial === isSpecial && b.level === levelNum;
+    });
     
     const mergeCount = Math.floor(blocks.length / 4);
     if (mergeCount === 0) {
@@ -987,21 +1550,48 @@ function autoMerge(level) {
     
     // 创建新方块
     for (let i = 0; i < mergeCount; i++) {
-        const newLevel = level + 1;
-        const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
-        const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
-        const newBlock = new Block(newLevel, shape, rotation);
-        playerInventory.push(newBlock);
+        const newLevel = levelNum + 1;
+        if (isSpecial) {
+            // 创建特殊方块
+            const newBlock = new Block(newLevel, 0, 0, true);
+            playerInventory.push(newBlock);
+        } else {
+            // 创建普通方块
+            const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
+            const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
+            const newBlock = new Block(newLevel, shape, rotation);
+            playerInventory.push(newBlock);
+        }
     }
     
     saveGameData();
     renderUpgradeInventory();
     renderInventory();
-    alert(`成功合成 ${mergeCount} 个等级 ${level + 1} 的方块！`);
+    const blockType = isSpecial ? '特殊方块' : '普通方块';
+    alert(`成功合成 ${mergeCount} 个等级 ${newLevel} 的${blockType}！`);
 }
 
 // 保存和加载游戏数据
 function saveGameData() {
+    // 保存所有方案的数据
+    const schemes = gameBoards.map((board, index) => ({
+        blocks: board.blocks.map(({ block, x, y }) => ({
+            blockId: block.id,
+            x, y
+        })),
+        specialBlocks: board.specialBlocks.map(({ block, x, y }) => ({
+            blockId: block.id,
+            x, y
+        })),
+        currentCellCount: board.currentCellCount
+    }));
+    
+    // 将 blockUsageMap 转换为可序列化的格式
+    const blockUsage = {};
+    blockUsageMap.forEach((schemeSet, blockId) => {
+        blockUsage[blockId] = Array.from(schemeSet);
+    });
+    
     const data = {
         inventory: playerInventory.map(b => ({
             level: b.level,
@@ -1011,18 +1601,14 @@ function saveGameData() {
             cells: b.cells,
             id: b.id
         })),
-        board: {
-            blocks: gameBoard.blocks.map(({ block, x, y }) => ({
-                blockId: block.id,
-                x, y
-            })),
-            specialBlocks: gameBoard.specialBlocks.map(({ block, x, y }) => ({
-                blockId: block.id,
-                x, y
-            }))
-        },
-        placedBlockIds: Array.from(placedBlocks),
-        gachaCounts: gachaCounts
+        schemes: schemes,
+        blockUsage: blockUsage,
+        currentSchemeIndex: currentSchemeIndex,
+        gachaCounts: gachaCounts,
+        silverKeys: silverKeys,
+        goldKeys: goldKeys,
+        activeDays: activeDays,
+        playerRole: playerRole
     };
     
     localStorage.setItem('tetrisGameData', JSON.stringify(data));
@@ -1043,32 +1629,107 @@ function loadGameData() {
             return block;
         });
         
-        // 恢复放置的方块
-        placedBlocks = new Set(data.placedBlockIds);
+        // 恢复方块使用情况
+        blockUsageMap.clear();
+        if (data.blockUsage) {
+            Object.keys(data.blockUsage).forEach(blockId => {
+                blockUsageMap.set(blockId, new Set(data.blockUsage[blockId]));
+            });
+        }
+        
+        // 恢复当前方案索引
+        if (data.currentSchemeIndex !== undefined) {
+            currentSchemeIndex = Math.min(data.currentSchemeIndex, gameBoards.length - 1);
+        }
         
         // 恢复宝箱开启次数
         if (data.gachaCounts) {
             gachaCounts = data.gachaCounts;
         }
         
-        // 恢复底板
-        data.board.blocks.forEach(({ blockId, x, y }) => {
-            const block = playerInventory.find(b => b.id === blockId);
-            if (block) {
-                gameBoard.placeBlock(block, x, y);
-            }
-        });
+        // 恢复银色钥匙（如果已保存则使用保存的值，否则使用初始值10）
+        if (data.silverKeys !== undefined) {
+            silverKeys = data.silverKeys;
+        } else {
+            silverKeys = 10; // 初始值
+        }
         
-        data.board.specialBlocks.forEach(({ blockId, x, y }) => {
-            const block = playerInventory.find(b => b.id === blockId);
-            if (block) {
-                gameBoard.placeBlock(block, x, y);
-            }
-        });
+        // 恢复金色钥匙（如果已保存则使用保存的值，否则使用初始值1）
+        if (data.goldKeys !== undefined) {
+            goldKeys = data.goldKeys;
+        } else {
+            goldKeys = 1; // 初始值
+        }
         
-        // 扩展格子
-        const totalLevel = gameBoard.getTotalLevel();
-        gameBoard.expandCells(totalLevel);
+        // 恢复活跃天数（如果已保存则使用保存的值，否则使用初始值0）
+        if (data.activeDays !== undefined) {
+            activeDays = data.activeDays;
+        } else {
+            activeDays = 0; // 初始值
+        }
+        
+        // 恢复玩家角色
+        if (data.playerRole) {
+            playerRole = data.playerRole;
+        }
+        
+        // 恢复所有方案的数据
+        if (data.schemes && Array.isArray(data.schemes)) {
+            data.schemes.forEach((schemeData, index) => {
+                if (index >= gameBoards.length) return;
+                const board = gameBoards[index];
+                
+                // 恢复格子数量
+                if (schemeData.currentCellCount) {
+                    board.currentCellCount = schemeData.currentCellCount;
+                    const coords = board.generateSpiralCoordinates(schemeData.currentCellCount);
+                    coords.forEach(([x, y]) => {
+                        board.cells.set(`${x},${y}`, null);
+                    });
+                }
+                
+                // 恢复普通方块
+                if (schemeData.blocks) {
+                    schemeData.blocks.forEach(({ blockId, x, y }) => {
+                        const block = playerInventory.find(b => b.id === blockId);
+                        if (block) {
+                            board.placeBlock(block, x, y);
+                        }
+                    });
+                }
+                
+                // 恢复特殊方块
+                if (schemeData.specialBlocks) {
+                    schemeData.specialBlocks.forEach(({ blockId, x, y }) => {
+                        const block = playerInventory.find(b => b.id === blockId);
+                        if (block) {
+                            board.placeBlock(block, x, y);
+                        }
+                    });
+                }
+            });
+        } else if (data.board) {
+            // 兼容旧格式：只恢复第一个方案
+            const board = gameBoards[0];
+            data.board.blocks.forEach(({ blockId, x, y }) => {
+                const block = playerInventory.find(b => b.id === blockId);
+                if (block) {
+                    board.placeBlock(block, x, y);
+                }
+            });
+            data.board.specialBlocks.forEach(({ blockId, x, y }) => {
+                const block = playerInventory.find(b => b.id === blockId);
+                if (block) {
+                    board.placeBlock(block, x, y);
+                }
+            });
+            // 扩展格子
+            const totalLevel = board.getTotalLevel();
+            expandCellsForAllSchemes(totalLevel);
+        }
+        
+        // 更新方案选择器
+        initializeSchemeSelector();
         
         renderBoard();
         renderInventory();
@@ -1154,9 +1815,15 @@ function renderConfigPage() {
         case 'table6':
             renderBoardExpansionTable(content);
             break;
-        case 'table7':
-            renderFullBoardBonusTable(content);
-            break;
+                case 'table7':
+                    renderFullBoardBonusTable(content);
+                    break;
+                case 'table8':
+                    renderRoleConfigTable(content);
+                    break;
+                case 'table9':
+                    renderSchemeCountTable(content);
+                    break;
     }
 }
 
@@ -1191,23 +1858,77 @@ function renderAttributeLevelTable(container) {
     container.appendChild(table);
 }
 
-// 渲染特殊方块区域表
+// 渲染特殊方块区域表（图形化配置）
 function renderSpecialBlockRangeTable(container) {
     const div = document.createElement('div');
-    div.innerHTML = '<p>特殊方块影响区域（坐标偏移列表，格式：x,y，每行一个坐标）</p>';
+    div.innerHTML = '<p>特殊方块影响区域配置（点击格子来切换是否在影响范围内）</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">白色格子 = 不在范围内，紫色格子 = 在范围内，中心格子（深紫色）= 特殊方块位置</p>';
     
     for (let level = 1; level <= 5; level++) {
         const levelDiv = document.createElement('div');
-        levelDiv.style.marginBottom = '20px';
+        levelDiv.style.marginBottom = '30px';
+        levelDiv.style.padding = '15px';
+        levelDiv.style.background = 'white';
+        levelDiv.style.borderRadius = '5px';
         levelDiv.innerHTML = `<h4>等级 ${level}</h4>`;
         
-        const textarea = document.createElement('textarea');
-        textarea.className = 'range-textarea';
-        textarea.dataset.level = level;
-        textarea.value = SPECIAL_BLOCK_RANGE[level].map(([x, y]) => `${x},${y}`).join('\n');
-        textarea.rows = 5;
-        textarea.cols = 30;
-        levelDiv.appendChild(textarea);
+        // 创建图形化配置区域
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'range-grid-container';
+        gridContainer.dataset.level = level;
+        
+        // 确定网格大小（根据当前范围计算）
+        const currentRange = SPECIAL_BLOCK_RANGE[level] || [];
+        const allX = currentRange.map(([x]) => x);
+        const allY = currentRange.map(([, y]) => y);
+        const minX = Math.min(...allX, -3);
+        const maxX = Math.max(...allX, 3);
+        const minY = Math.min(...allY, -3);
+        const maxY = Math.max(...allY, 3);
+        const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
+        const centerOffset = Math.floor(gridSize / 2);
+        
+        // 创建网格
+        const grid = document.createElement('div');
+        grid.className = 'range-config-grid';
+        grid.style.display = 'grid';
+        grid.style.gridTemplateColumns = `repeat(${gridSize}, 35px)`;
+        grid.style.gap = '2px';
+        grid.style.margin = '10px 0';
+        
+        // 创建格子
+        const rangeSet = new Set(currentRange.map(([x, y]) => `${x},${y}`));
+        
+        for (let row = 0; row < gridSize; row++) {
+            for (let col = 0; col < gridSize; col++) {
+                const cell = document.createElement('div');
+                const x = col - centerOffset;
+                const y = row - centerOffset;
+                const key = `${x},${y}`;
+                
+                cell.className = 'range-config-cell';
+                cell.dataset.x = x;
+                cell.dataset.y = y;
+                cell.dataset.level = level;
+                
+                if (x === 0 && y === 0) {
+                    cell.classList.add('center-cell');
+                    cell.textContent = '★';
+                } else if (rangeSet.has(key)) {
+                    cell.classList.add('active');
+                }
+                
+                cell.addEventListener('click', () => {
+                    if (x === 0 && y === 0) return; // 中心格子不能切换
+                    cell.classList.toggle('active');
+                });
+                
+                grid.appendChild(cell);
+            }
+        }
+        
+        gridContainer.appendChild(grid);
+        levelDiv.appendChild(gridContainer);
         div.appendChild(levelDiv);
     }
     
@@ -1433,6 +2154,131 @@ function renderBoardExpansionTable(container) {
     container.appendChild(div);
 }
 
+// 渲染角色配置表
+function renderRoleConfigTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置各角色每天获得的奖励（每天都有固定奖励）</p>';
+    
+    // 角色选择
+    const roleSelectDiv = document.createElement('div');
+    roleSelectDiv.style.marginBottom = '20px';
+    roleSelectDiv.innerHTML = '<label>当前角色：</label>';
+    const roleSelect = document.createElement('select');
+    roleSelect.id = 'player-role-select';
+    roleSelect.style.marginLeft = '10px';
+    roleSelect.style.padding = '5px 10px';
+    ['非R', '小R', '中R', '大R', '超R'].forEach(role => {
+        const option = document.createElement('option');
+        option.value = role;
+        option.textContent = role;
+        if (role === playerRole) {
+            option.selected = true;
+        }
+        roleSelect.appendChild(option);
+    });
+    roleSelect.addEventListener('change', (e) => {
+        playerRole = e.target.value;
+        saveGameData();
+        updateActiveDaysDisplay();
+    });
+    roleSelectDiv.appendChild(roleSelect);
+    div.appendChild(roleSelectDiv);
+    
+    // 奖励配置表格
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>角色</th>
+                <th>每天银色钥匙</th>
+                <th>每天金色钥匙</th>
+            </tr>
+        </thead>
+        <tbody id="role-rewards-tbody"></tbody>
+    `;
+    
+    const tbody = table.querySelector('#role-rewards-tbody');
+    
+    // 渲染奖励配置
+    function renderRewards() {
+        tbody.innerHTML = '';
+        const roles = ['非R', '小R', '中R', '大R', '超R'];
+        
+        roles.forEach(role => {
+            const reward = ACTIVE_DAY_REWARDS[role] || { silverKeys: 0, goldKeys: 0 };
+            const row = document.createElement('tr');
+            row.dataset.role = role;
+            row.innerHTML = `
+                <td>${role}</td>
+                <td><input type="number" min="0" data-field="silverKeys" value="${reward.silverKeys || 0}" style="width: 100px;"></td>
+                <td><input type="number" min="0" data-field="goldKeys" value="${reward.goldKeys || 0}" style="width: 100px;"></td>
+            `;
+            tbody.appendChild(row);
+        });
+    }
+    
+    renderRewards();
+    
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
+// 渲染方案数量配置表
+function renderSchemeCountTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置底板方案数量（修改后需要刷新页面生效）</p>';
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>配置项</th>
+                <th>方案数量</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>底板方案数量</td>
+                <td><input type="number" min="1" max="10" id="scheme-count-input" value="${BOARD_SCHEME_COUNT}"></td>
+            </tr>
+        </tbody>
+    `;
+    
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
+// 渲染方案数量配置表
+function renderSchemeCountTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置底板方案数量（修改后需要刷新页面生效）</p>';
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    table.innerHTML = `
+        <thead>
+            <tr>
+                <th>配置项</th>
+                <th>方案数量</th>
+            </tr>
+        </thead>
+        <tbody>
+            <tr>
+                <td>底板方案数量</td>
+                <td><input type="number" min="1" max="10" id="scheme-count-input" value="${BOARD_SCHEME_COUNT}"></td>
+            </tr>
+        </tbody>
+    `;
+    
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
 // 渲染全满加成配置表
 function renderFullBoardBonusTable(container) {
     const div = document.createElement('div');
@@ -1498,15 +2344,18 @@ function saveConfigData() {
         }
     });
     
-    // 保存特殊方块区域
-    document.querySelectorAll('.range-textarea').forEach(textarea => {
-        const level = parseInt(textarea.dataset.level);
-        const lines = textarea.value.split('\n').filter(line => line.trim());
-        SPECIAL_BLOCK_RANGE[level] = lines.map(line => {
-            const [x, y] = line.split(',').map(Number);
-            return [x, y];
-        });
-    });
+    // 保存特殊方块区域（从图形化配置读取）
+    for (let level = 1; level <= 5; level++) {
+        const gridContainer = document.querySelector(`.range-grid-container[data-level="${level}"]`);
+        if (gridContainer) {
+            const activeCells = gridContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
+            SPECIAL_BLOCK_RANGE[level] = Array.from(activeCells).map(cell => {
+                const x = parseInt(cell.dataset.x);
+                const y = parseInt(cell.dataset.y);
+                return [x, y];
+            });
+        }
+    }
     
     // 保存宝箱概率
     document.querySelectorAll('#low-gacha-tbody input').forEach(input => {
@@ -1542,37 +2391,112 @@ function saveConfigData() {
         SPECIAL_BLOCK_BONUS[level] = parseFloat(input.value);
     });
     
-    // 保存底板扩展规则
-    BOARD_EXPANSION_RULES.length = 0; // 清空数组
-    document.querySelectorAll('#expansion-rules-tbody tr').forEach(row => {
-        const levelInput = row.querySelector('[data-field="level"]');
-        const countInput = row.querySelector('[data-field="count"]');
-        if (levelInput && countInput) {
-            BOARD_EXPANSION_RULES.push({
-                level: parseInt(levelInput.value),
-                count: parseInt(countInput.value)
-            });
-        }
-    });
-    // 按level排序
-    BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
-    
     // 保存全满加成比例
     const fullBoardBonusInput = document.getElementById('full-board-bonus-input');
     if (fullBoardBonusInput) {
         FULL_BOARD_BONUS = parseFloat(fullBoardBonusInput.value);
     }
     
-    // 保存到localStorage
-    localStorage.setItem('gameConfig', JSON.stringify({
-        ATTRIBUTE_LEVEL_TABLE,
-        SPECIAL_BLOCK_RANGE,
-        GACHA_PROBABILITY,
-        SECONDARY_ATTRIBUTE_CONFIG,
-        SPECIAL_BLOCK_BONUS,
-        BOARD_EXPANSION_RULES,
-        FULL_BOARD_BONUS
-    }));
+    // 保存方案数量
+    const schemeCountInput = document.getElementById('scheme-count-input');
+    if (schemeCountInput) {
+        BOARD_SCHEME_COUNT = parseInt(schemeCountInput.value) || 3;
+    }
+    
+    // 读取现有配置，保留底板扩展规则（如果当前不在该标签页）
+    let savedExpansionRules = null;
+    const existingConfig = localStorage.getItem('gameConfig');
+    if (existingConfig) {
+        try {
+            const existing = JSON.parse(existingConfig);
+            if (existing.BOARD_EXPANSION_RULES && Array.isArray(existing.BOARD_EXPANSION_RULES) && existing.BOARD_EXPANSION_RULES.length > 0) {
+                savedExpansionRules = existing.BOARD_EXPANSION_RULES;
+            }
+        } catch (e) {
+            console.error('读取现有配置失败:', e);
+        }
+    }
+    
+    // 保存底板扩展规则（只有在表格存在且有数据时才更新）
+    const expansionTbody = document.querySelector('#expansion-rules-tbody');
+    if (expansionTbody && expansionTbody.children.length > 0) {
+        // 表格存在，读取表格中的数据
+        const newRules = [];
+        document.querySelectorAll('#expansion-rules-tbody tr').forEach(row => {
+            const levelInput = row.querySelector('[data-field="level"]');
+            const countInput = row.querySelector('[data-field="count"]');
+            if (levelInput && countInput) {
+                const level = parseInt(levelInput.value);
+                const count = parseInt(countInput.value);
+                if (!isNaN(level) && !isNaN(count) && level >= 0 && count >= 25) {
+                    newRules.push({
+                        level: level,
+                        count: count
+                    });
+                }
+            }
+        });
+        
+        // 如果读取到有效数据，更新规则
+        if (newRules.length > 0) {
+            BOARD_EXPANSION_RULES.length = 0;
+            BOARD_EXPANSION_RULES.push(...newRules);
+            BOARD_EXPANSION_RULES.sort((a, b) => a.level - b.level);
+            savedExpansionRules = BOARD_EXPANSION_RULES;
+            console.log('底板扩展规则已更新:', savedExpansionRules);
+        } else {
+            console.warn('底板扩展规则表格数据无效，保留现有配置');
+        }
+    } else {
+        // 表格不存在，使用现有配置或当前值
+        if (savedExpansionRules) {
+            BOARD_EXPANSION_RULES.length = 0;
+            BOARD_EXPANSION_RULES.push(...savedExpansionRules);
+            console.log('保留现有底板扩展规则配置');
+        }
+    }
+    
+    // 保存到localStorage（完全覆盖，使用深拷贝确保独立）
+    const configToSave = {
+        ATTRIBUTE_LEVEL_TABLE: JSON.parse(JSON.stringify(ATTRIBUTE_LEVEL_TABLE)),
+        SPECIAL_BLOCK_RANGE: JSON.parse(JSON.stringify(SPECIAL_BLOCK_RANGE)),
+        GACHA_PROBABILITY: JSON.parse(JSON.stringify(GACHA_PROBABILITY)),
+        SECONDARY_ATTRIBUTE_CONFIG: JSON.parse(JSON.stringify(SECONDARY_ATTRIBUTE_CONFIG)),
+        SPECIAL_BLOCK_BONUS: JSON.parse(JSON.stringify(SPECIAL_BLOCK_BONUS)),
+        FULL_BOARD_BONUS: FULL_BOARD_BONUS,
+        BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT
+    };
+    
+    // 确保保存有效的扩展规则（使用深拷贝）
+    if (savedExpansionRules && savedExpansionRules.length > 0) {
+        configToSave.BOARD_EXPANSION_RULES = JSON.parse(JSON.stringify(savedExpansionRules));
+    } else if (BOARD_EXPANSION_RULES.length > 0) {
+        configToSave.BOARD_EXPANSION_RULES = JSON.parse(JSON.stringify(BOARD_EXPANSION_RULES));
+    }
+    
+    // 保存角色配置（从表格读取，每天固定奖励）
+    const roleRewardsTbody = document.querySelector('#role-rewards-tbody');
+    if (roleRewardsTbody) {
+        const newRewards = {};
+        roleRewardsTbody.querySelectorAll('tr').forEach(row => {
+            const role = row.dataset.role;
+            const silverInput = row.querySelector('[data-field="silverKeys"]');
+            const goldInput = row.querySelector('[data-field="goldKeys"]');
+            
+            if (role && silverInput && goldInput) {
+                const silverKeys = parseInt(silverInput.value) || 0;
+                const goldKeys = parseInt(goldInput.value) || 0;
+                
+                newRewards[role] = { silverKeys, goldKeys };
+            }
+        });
+        configToSave.ACTIVE_DAY_REWARDS = JSON.parse(JSON.stringify(newRewards));
+    } else {
+        // 如果表格不存在，保留现有配置（使用深拷贝）
+        configToSave.ACTIVE_DAY_REWARDS = JSON.parse(JSON.stringify(ACTIVE_DAY_REWARDS));
+    }
+    
+    localStorage.setItem('gameConfig', JSON.stringify(configToSave));
     
     console.log('配置已保存');
 }
@@ -1585,20 +2509,38 @@ function loadConfigData() {
     try {
         const config = JSON.parse(configStr);
         
-        // 更新全局配置对象
+        // 完全覆盖全局配置对象（而不是合并）
         if (config.ATTRIBUTE_LEVEL_TABLE) {
+            // 清空原有配置，完全替换
+            Object.keys(ATTRIBUTE_LEVEL_TABLE).forEach(key => delete ATTRIBUTE_LEVEL_TABLE[key]);
             Object.assign(ATTRIBUTE_LEVEL_TABLE, config.ATTRIBUTE_LEVEL_TABLE);
         }
         if (config.SPECIAL_BLOCK_RANGE) {
+            // 清空原有配置，完全替换
+            Object.keys(SPECIAL_BLOCK_RANGE).forEach(key => delete SPECIAL_BLOCK_RANGE[key]);
             Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
         }
         if (config.GACHA_PROBABILITY) {
-            Object.assign(GACHA_PROBABILITY, config.GACHA_PROBABILITY);
+            // 完全替换宝箱概率配置
+            if (config.GACHA_PROBABILITY.low) {
+                GACHA_PROBABILITY.low = { ...config.GACHA_PROBABILITY.low };
+            }
+            if (config.GACHA_PROBABILITY.high) {
+                GACHA_PROBABILITY.high = { ...config.GACHA_PROBABILITY.high };
+            }
         }
         if (config.SECONDARY_ATTRIBUTE_CONFIG) {
-            Object.assign(SECONDARY_ATTRIBUTE_CONFIG, config.SECONDARY_ATTRIBUTE_CONFIG);
+            // 完全替换二级属性配置
+            if (config.SECONDARY_ATTRIBUTE_CONFIG.probability) {
+                SECONDARY_ATTRIBUTE_CONFIG.probability = { ...config.SECONDARY_ATTRIBUTE_CONFIG.probability };
+            }
+            if (config.SECONDARY_ATTRIBUTE_CONFIG.values) {
+                SECONDARY_ATTRIBUTE_CONFIG.values = { ...config.SECONDARY_ATTRIBUTE_CONFIG.values };
+            }
         }
         if (config.SPECIAL_BLOCK_BONUS) {
+            // 清空原有配置，完全替换
+            Object.keys(SPECIAL_BLOCK_BONUS).forEach(key => delete SPECIAL_BLOCK_BONUS[key]);
             Object.assign(SPECIAL_BLOCK_BONUS, config.SPECIAL_BLOCK_BONUS);
         }
         if (config.BOARD_EXPANSION_RULES) {
@@ -1609,7 +2551,26 @@ function loadConfigData() {
         if (config.FULL_BOARD_BONUS !== undefined) {
             FULL_BOARD_BONUS = config.FULL_BOARD_BONUS;
         }
-        
+        if (config.ACTIVE_DAY_REWARDS) {
+            // 兼容旧格式（按天数）和新格式（每天固定）
+            Object.keys(config.ACTIVE_DAY_REWARDS).forEach(role => {
+                const roleData = config.ACTIVE_DAY_REWARDS[role];
+                // 如果是对象且没有数字键，说明是新格式（每天固定）
+                if (roleData && typeof roleData === 'object' && !Object.keys(roleData).some(k => !isNaN(k))) {
+                    ACTIVE_DAY_REWARDS[role] = roleData;
+                } else {
+                    // 旧格式，取第一天的奖励作为每天固定奖励
+                    const firstDay = Object.keys(roleData).map(Number).sort((a, b) => a - b)[0];
+                    if (firstDay !== undefined) {
+                        ACTIVE_DAY_REWARDS[role] = roleData[firstDay];
+                    }
+                }
+            });
+        }
+        if (config.BOARD_SCHEME_COUNT !== undefined) {
+            BOARD_SCHEME_COUNT = config.BOARD_SCHEME_COUNT;
+        }
+
         console.log('配置数据已加载');
     } catch (e) {
         console.error('加载配置数据失败:', e);

@@ -129,3 +129,15 @@ const BOARD_EXPANSION_RULES = [
 // 底板填满后的属性加成比例（1.5表示增加50%，即最终为150%）
 let FULL_BOARD_BONUS = 1.5;
 
+// 活跃天数奖励配置（每个角色每天固定奖励）
+let ACTIVE_DAY_REWARDS = {
+    '非R': { silverKeys: 1, goldKeys: 0 },
+    '小R': { silverKeys: 2, goldKeys: 0 },
+    '中R': { silverKeys: 3, goldKeys: 1 },
+    '大R': { silverKeys: 5, goldKeys: 2 },
+    '超R': { silverKeys: 10, goldKeys: 5 }
+};
+
+// 底板方案数量配置
+let BOARD_SCHEME_COUNT = 3; // 默认3个方案
+
