@@ -1335,7 +1335,7 @@ function expandCellsForAllSchemes(totalLevel) {
 // 重置系统
 // 注意：此函数只重置游戏数据（方块、底板等），不会清除数据配置（gameConfig）
 // 手动配置的数据会保留，不会被重置
-// 活跃天数会保留，不会被重置
+// 活跃天数会重置为0天
 // 银色钥匙和金色钥匙会重置为初始值（10个银色钥匙和1个金色钥匙）
 function resetSystem() {
     // 1. 清空所有方案的底板
@@ -1364,9 +1364,12 @@ function resetSystem() {
     goldKeys = 1;
     updateSilverKeysDisplay();
     updateGoldKeysDisplay();
-    // 注意：活跃天数不会被重置，会保留
     
-    // 6. 清除选择状态
+    // 7. 重置活跃天数为0
+    activeDays = 0;
+    updateActiveDaysDisplay();
+    
+    // 8. 清除选择状态
     selectedBlockIds.clear();
     
     // 7. 重新渲染
