@@ -196,8 +196,24 @@ class Block {
         const minY = Math.min(...rotatedShape.map(([, y]) => y));
         const normalizedShape = rotatedShape.map(([x, y]) => [x - minX, y - minY]);
         
+        const cellCount = normalizedShape.length;
+        
+        // 确保最多只有2种一级属性
+        // 随机选择2种属性类型
+        const allAttrTypes = ['attack', 'defense', 'health'];
+        const shuffled = [...allAttrTypes].sort(() => Math.random() - 0.5);
+        const selectedAttrTypes = shuffled.slice(0, 2); // 选择前2种
+        
+        // 为每个格子分配属性类型（确保最多2种）
+        const attrTypeCounts = {};
+        selectedAttrTypes.forEach(type => attrTypeCounts[type] = 0);
+        
+        // 随机分配每个格子的属性类型
         normalizedShape.forEach(([x, y]) => {
-            const attrType = ['attack', 'defense', 'health'][Math.floor(Math.random() * 3)];
+            // 从已选择的2种属性类型中随机选择
+            const attrType = selectedAttrTypes[Math.floor(Math.random() * selectedAttrTypes.length)];
+            attrTypeCounts[attrType]++;
+            
             const attrValue = ATTRIBUTE_LEVEL_TABLE[this.level][attrType];
             
             const cell = {

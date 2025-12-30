@@ -16,7 +16,7 @@ let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
 
 // 版本号管理
 // 版本号应该在代码中手动管理，每次代码修改时手动更新最后一位
-const CODE_VERSION = '1.1.92'; // 代码版本号，每次代码修改时手动更新
+const CODE_VERSION = '1.1.93'; // 代码版本号，每次代码修改时手动更新
 
 function getVersion() {
     // 直接返回代码中定义的版本号，不从localStorage读取
