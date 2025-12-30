@@ -2,35 +2,35 @@
 
 // 表格1: 属性等级数值表
 const ATTRIBUTE_LEVEL_TABLE = {
-    1: { attack: 10, defense: 10, health: 20 },
-    2: { attack: 15, defense: 15, health: 30 },
-    3: { attack: 22, defense: 22, health: 45 },
-    4: { attack: 32, defense: 32, health: 65 },
-    5: { attack: 45, defense: 45, health: 90 },
-    6: { attack: 62, defense: 62, health: 125 },
-    7: { attack: 85, defense: 85, health: 170 },
-    8: { attack: 115, defense: 115, health: 230 },
-    9: { attack: 155, defense: 155, health: 310 },
-    10: { attack: 210, defense: 210, health: 420 }
+    1: { attack: 5, defense: 5, health: 70 },
+    2: { attack: 10, defense: 10, health: 140 },
+    3: { attack: 16, defense: 16, health: 224 },
+    4: { attack: 24, defense: 24, health: 336 },
+    5: { attack: 32, defense: 32, health: 448 },
+    6: { attack: 40, defense: 40, health: 560 },
+    7: { attack: 50, defense: 50, health: 700 },
+    8: { attack: 60, defense: 60, health: 840 },
+    9: { attack: 70, defense: 70, health: 980 },
+    10: { attack: 80, defense: 80, health: 1120 }
 };
 
 // 二级属性出现概率和数值
 const SECONDARY_ATTRIBUTE_CONFIG = {
     probability: {
-        5: 0.1,  // 5级10%概率
-        6: 0.15,
-        7: 0.2,
-        8: 0.25,
-        9: 0.3,
-        10: 0.35
+        5: 0.01,  // 5级10%概率
+        6: 0.03,
+        7: 0.05,
+        8: 0.06,
+        9: 0.08,
+        10: 0.1
     },
     values: {
-        5: { min: 5, max: 10 },
-        6: { min: 8, max: 15 },
-        7: { min: 12, max: 20 },
-        8: { min: 16, max: 25 },
-        9: { min: 20, max: 30 },
-        10: { min: 25, max: 35 }
+        5: { min: 1, max: 2 },
+        6: { min: 2, max: 4 },
+        7: { min: 3, max: 6 },
+        8: { min: 4, max: 8 },
+        9: { min: 5, max: 10 },
+        10: { min: 6, max: 12 }
     }
 };
 
@@ -56,16 +56,16 @@ const SPECIAL_BLOCK_BONUS = {
 // 表格3: 宝箱概率表
 const GACHA_PROBABILITY = {
     low: {
-        1: 0.5,   // 50%
-        2: 0.35,  // 35%
-        3: 0.15   // 15%
+        1: 0.75,   // 50%
+        2: 0.2,  // 35%
+        3: 0.05   // 15%
     },
     high: {
-        2: 0.4,   // 40%
-        3: 0.3,   // 30%
-        4: 0.2,   // 20%
-        5: 0.07,  // 9%
-        special: 0.03  // 1%特殊方块
+        2: 0.5,   // 40%
+        3: 0.25,   // 30%
+        4: 0.1,   // 20%
+        5: 0.08,  // 9%
+        special: 0.07  // 1%特殊方块
     }
 };
 
