@@ -15,32 +15,22 @@ let activeDays = 0; // 活跃天数（从0天开始）
 let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
 
 // 版本号管理
-function getVersion() {
-    const savedVersion = localStorage.getItem('gameVersion');
-    if (savedVersion) {
-        return savedVersion;
-    }
-    return '1.1.0'; // 默认版本号
-}
+// 版本号应该在代码中手动管理，每次代码修改时手动更新最后一位
+const CODE_VERSION = '1.1.92'; // 代码版本号，每次代码修改时手动更新
 
-function incrementVersion() {
-    const currentVersion = getVersion();
-    const parts = currentVersion.split('.');
-    if (parts.length === 3) {
-        const patch = parseInt(parts[2]) || 0;
-        parts[2] = (patch + 1).toString();
-        const newVersion = parts.join('.');
-        localStorage.setItem('gameVersion', newVersion);
-        updateVersionDisplay();
-        return newVersion;
-    }
-    return currentVersion;
+function getVersion() {
+    // 直接返回代码中定义的版本号，不从localStorage读取
+    return CODE_VERSION;
 }
 
 function updateVersionDisplay() {
     const display = document.getElementById('version-display');
     if (display) {
-        display.textContent = `版本号: ${getVersion()}`;
+        const version = getVersion();
+        display.textContent = `版本号: ${version}`;
+        console.log('版本号显示已更新:', version);
+    } else {
+        console.warn('版本号显示元素未找到');
     }
 }
 
@@ -255,6 +245,14 @@ function renderBlockOnBoard(block, baseX, baseY, container, boardMinX, boardMinY
         specialEl.style.width = '100%';
         specialEl.style.height = '100%';
         blockContainer.appendChild(specialEl);
+        
+        // 为特殊方块添加悬停提示
+        blockContainer.addEventListener('mouseenter', (e) => {
+            showTooltip(e.target, block);
+        });
+        blockContainer.addEventListener('mouseleave', () => {
+            hideTooltip();
+        });
     } else {
         // 直接使用cells中的坐标（已经是归一化的）
         block.cells.forEach((cell, index) => {
@@ -282,6 +280,14 @@ function renderBlockOnBoard(block, baseX, baseY, container, boardMinX, boardMinY
         // levelEl.className = 'block-level';
         // levelEl.textContent = block.level;
         // blockContainer.appendChild(levelEl);
+        
+        // 为普通方块也添加悬停提示
+        blockContainer.addEventListener('mouseenter', (e) => {
+            showTooltip(e.target, block);
+        });
+        blockContainer.addEventListener('mouseleave', () => {
+            hideTooltip();
+        });
     }
     
     // 直接添加到 board，而不是添加到 container（格子）
@@ -299,7 +305,11 @@ function renderBonusArrows() {
     
     const gameBoard = getCurrentGameBoard();
     gameBoard.specialBlocks.forEach(({ block, x, y }) => {
-        const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
+        const range = block.getRange();
+        if (!range || !Array.isArray(range)) {
+            console.error('无法获取特殊方块加成区域:', block);
+            return;
+        }
         const coords = gameBoard.getAllCellCoords();
         const minX = Math.min(...coords.map(c => c.x));
         const minY = Math.min(...coords.map(c => c.y));
@@ -387,6 +397,14 @@ function createBlockElement(block) {
         specialEl.className = 'special-block';
         specialEl.textContent = block.level;
         container.appendChild(specialEl);
+        
+        // 为特殊方块添加悬停提示（图形化）
+        container.addEventListener('mouseenter', (e) => {
+            showSpecialBlockTooltip(e.target, block);
+        });
+        container.addEventListener('mouseleave', () => {
+            hideTooltip();
+        });
     } else {
         const grid = document.createElement('div');
         grid.className = 'block-grid';
@@ -439,9 +457,90 @@ function createBlockElement(block) {
 let tooltip = null;
 function showTooltip(element, block) {
     hideTooltip();
+    
+    // 如果是特殊方块，使用图形化提示
+    if (block.isSpecial) {
+        showSpecialBlockTooltip(element, block);
+        return;
+    }
+    
     tooltip = document.createElement('div');
     tooltip.className = 'block-tooltip';
     tooltip.textContent = block.getTooltipText();
+    document.body.appendChild(tooltip);
+    
+    const rect = element.getBoundingClientRect();
+    tooltip.style.left = rect.left + rect.width / 2 + 'px';
+    tooltip.style.top = rect.top - 10 + 'px';
+    tooltip.style.transform = 'translate(-50%, -100%)';
+}
+
+// 显示特殊方块的图形化加成区域提示
+function showSpecialBlockTooltip(element, block) {
+    hideTooltip();
+    
+    tooltip = document.createElement('div');
+    tooltip.className = 'special-block-tooltip';
+    
+    // 创建标题
+    const title = document.createElement('div');
+    title.className = 'special-tooltip-title';
+    const bonus = SPECIAL_BLOCK_BONUS[block.level] || 0;
+    const bonusPercent = (bonus * 100).toFixed(0);
+    title.innerHTML = `<strong>特殊方块 Lv.${block.level}</strong><br>加成比例: ${bonusPercent}%`;
+    tooltip.appendChild(title);
+    
+    // 创建图形化区域显示
+    const range = block.getRange();
+    if (!range || !Array.isArray(range)) {
+        console.error('无法获取特殊方块加成区域:', block);
+        return;
+    }
+    const allX = range.map(([x]) => x);
+    const allY = range.map(([, y]) => y);
+    const minX = Math.min(...allX, -3);
+    const maxX = Math.max(...allX, 3);
+    const minY = Math.min(...allY, -3);
+    const maxY = Math.max(...allY, 3);
+    const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
+    const centerOffset = Math.floor(gridSize / 2);
+    
+    const grid = document.createElement('div');
+    grid.className = 'special-tooltip-grid';
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = `repeat(${gridSize}, 25px)`;
+    grid.style.gap = '2px';
+    grid.style.margin = '10px 0';
+    
+    const rangeSet = new Set(range.map(([x, y]) => `${x},${y}`));
+    
+    for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+            const cell = document.createElement('div');
+            const x = col - centerOffset;
+            const y = row - centerOffset;
+            const key = `${x},${y}`;
+            
+            cell.className = 'special-tooltip-cell';
+            if (x === 0 && y === 0) {
+                cell.classList.add('special-tooltip-center');
+                cell.textContent = '★';
+            } else if (rangeSet.has(key)) {
+                cell.classList.add('special-tooltip-active');
+            }
+            
+            grid.appendChild(cell);
+        }
+    }
+    
+    tooltip.appendChild(grid);
+    
+    // 添加说明文字
+    const desc = document.createElement('div');
+    desc.className = 'special-tooltip-desc';
+    desc.textContent = `影响范围: ${range.length} 格`;
+    tooltip.appendChild(desc);
+    
     document.body.appendChild(tooltip);
     
     const rect = element.getBoundingClientRect();
@@ -670,7 +769,11 @@ function highlightBoardCells(e) {
 
 // 渲染特殊方块增幅范围预览
 function renderBonusRangePreview(block, baseX, baseY, boardMinX, boardMinY) {
-    const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
+    const range = block.getRange();
+    if (!range || !Array.isArray(range)) {
+        console.error('无法获取特殊方块加成区域:', block);
+        return;
+    }
     const board = document.getElementById('game-board');
     const gameBoard = getCurrentGameBoard();
     
@@ -1494,7 +1597,25 @@ function loadConfigFromObject(config) {
     if (config.SPECIAL_BLOCK_RANGE) {
         // 清空原有配置，完全替换
         Object.keys(SPECIAL_BLOCK_RANGE).forEach(key => delete SPECIAL_BLOCK_RANGE[key]);
-        Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
+        
+        // 兼容旧格式：如果1级是数组，转换为新格式
+        if (config.SPECIAL_BLOCK_RANGE[1] && Array.isArray(config.SPECIAL_BLOCK_RANGE[1])) {
+            // 旧格式：1级是数组，需要转换为新格式
+            const oldRange1 = config.SPECIAL_BLOCK_RANGE[1];
+            SPECIAL_BLOCK_RANGE[1] = {
+                'horizontal': oldRange1, // 使用旧数据作为横向
+                'vertical': [[0, 0], [0, 1], [0, -1]] // 默认纵向
+            };
+            // 复制其他等级
+            Object.keys(config.SPECIAL_BLOCK_RANGE).forEach(key => {
+                if (key !== '1') {
+                    SPECIAL_BLOCK_RANGE[key] = config.SPECIAL_BLOCK_RANGE[key];
+                }
+            });
+        } else {
+            // 新格式：直接复制
+            Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
+        }
     }
     if (config.GACHA_PROBABILITY) {
         // 完全替换宝箱概率配置
@@ -1801,6 +1922,7 @@ function saveGameData() {
             shape: b.shape,
             rotation: b.rotation,
             isSpecial: b.isSpecial,
+            rangeType: b.rangeType || null, // 保存特殊方块的加成区域类型
             cells: b.cells,
             id: b.id
         })),
@@ -1826,9 +1948,13 @@ function loadGameData() {
         
         // 恢复方块
         playerInventory = data.inventory.map(bData => {
-            const block = new Block(bData.level, bData.shape, bData.rotation, bData.isSpecial);
+            const block = new Block(bData.level, bData.shape, bData.rotation, bData.isSpecial, bData.rangeType || null);
             block.id = bData.id;
             block.cells = bData.cells;
+            // 如果加载的是旧数据（没有 rangeType），为1级特殊方块设置默认值
+            if (block.isSpecial && block.level === 1 && !bData.rangeType) {
+                block.rangeType = 'horizontal'; // 默认使用横向
+            }
             return block;
         });
         
@@ -2069,7 +2195,7 @@ function setupAutoSaveForConfigInputs(container) {
             configSaveTimer = setTimeout(() => {
                 saveConfigData();
                 console.log('配置已自动保存，版本号已更新');
-            }, 500);
+            }, 300);
         }
     }, true); // 使用捕获阶段，确保能捕获到所有事件
     
@@ -2088,7 +2214,7 @@ function setupAutoSaveForConfigInputs(container) {
             configSaveTimer = setTimeout(() => {
                 saveConfigData();
                 console.log('配置已自动保存，版本号已更新');
-            }, 500);
+            }, 300);
         }
     }, true);
 }
@@ -2131,6 +2257,140 @@ function renderSpecialBlockRangeTable(container) {
     div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">白色格子 = 不在范围内，紫色格子 = 在范围内，中心格子（深紫色）= 特殊方块位置</p>';
     
     for (let level = 1; level <= 5; level++) {
+        // 1级特殊方块有两种类型，需要分别显示
+        if (level === 1) {
+            // 横向类型
+            const horizontalDiv = document.createElement('div');
+            horizontalDiv.style.marginBottom = '30px';
+            horizontalDiv.style.padding = '15px';
+            horizontalDiv.style.background = 'white';
+            horizontalDiv.style.borderRadius = '5px';
+            horizontalDiv.innerHTML = `<h4>等级 ${level} - 横向类型</h4>`;
+            
+            const horizontalContainer = document.createElement('div');
+            horizontalContainer.className = 'range-grid-container';
+            horizontalContainer.dataset.level = level;
+            horizontalContainer.dataset.type = 'horizontal';
+            
+            const horizontalRange = SPECIAL_BLOCK_RANGE[1]['horizontal'] || [];
+            const allX = horizontalRange.map(([x]) => x);
+            const allY = horizontalRange.map(([, y]) => y);
+            const minX = Math.min(...allX, -3);
+            const maxX = Math.max(...allX, 3);
+            const minY = Math.min(...allY, -3);
+            const maxY = Math.max(...allY, 3);
+            const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
+            const centerOffset = Math.floor(gridSize / 2);
+            
+            const grid = document.createElement('div');
+            grid.className = 'range-config-grid';
+            grid.style.display = 'grid';
+            grid.style.gridTemplateColumns = `repeat(${gridSize}, 35px)`;
+            grid.style.gap = '2px';
+            grid.style.margin = '10px 0';
+            
+            const rangeSet = new Set(horizontalRange.map(([x, y]) => `${x},${y}`));
+            
+            for (let row = 0; row < gridSize; row++) {
+                for (let col = 0; col < gridSize; col++) {
+                    const cell = document.createElement('div');
+                    const x = col - centerOffset;
+                    const y = row - centerOffset;
+                    const key = `${x},${y}`;
+                    
+                    cell.className = 'range-config-cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.dataset.level = level;
+                    
+                    if (x === 0 && y === 0) {
+                        cell.classList.add('center-cell');
+                        cell.textContent = '★';
+                    } else if (rangeSet.has(key)) {
+                        cell.classList.add('active');
+                    }
+                    
+                    cell.addEventListener('click', () => {
+                        if (x === 0 && y === 0) return;
+                        cell.classList.toggle('active');
+                    });
+                    
+                    grid.appendChild(cell);
+                }
+            }
+            
+            horizontalContainer.appendChild(grid);
+            horizontalDiv.appendChild(horizontalContainer);
+            div.appendChild(horizontalDiv);
+            
+            // 纵向类型
+            const verticalDiv = document.createElement('div');
+            verticalDiv.style.marginBottom = '30px';
+            verticalDiv.style.padding = '15px';
+            verticalDiv.style.background = 'white';
+            verticalDiv.style.borderRadius = '5px';
+            verticalDiv.innerHTML = `<h4>等级 ${level} - 纵向类型</h4>`;
+            
+            const verticalContainer = document.createElement('div');
+            verticalContainer.className = 'range-grid-container';
+            verticalContainer.dataset.level = level;
+            verticalContainer.dataset.type = 'vertical';
+            
+            const verticalRange = SPECIAL_BLOCK_RANGE[1]['vertical'] || [];
+            const allX2 = verticalRange.map(([x]) => x);
+            const allY2 = verticalRange.map(([, y]) => y);
+            const minX2 = Math.min(...allX2, -3);
+            const maxX2 = Math.max(...allX2, 3);
+            const minY2 = Math.min(...allY2, -3);
+            const maxY2 = Math.max(...allY2, 3);
+            const gridSize2 = Math.max(maxX2 - minX2 + 1, maxY2 - minY2 + 1, 7);
+            const centerOffset2 = Math.floor(gridSize2 / 2);
+            
+            const grid2 = document.createElement('div');
+            grid2.className = 'range-config-grid';
+            grid2.style.display = 'grid';
+            grid2.style.gridTemplateColumns = `repeat(${gridSize2}, 35px)`;
+            grid2.style.gap = '2px';
+            grid2.style.margin = '10px 0';
+            
+            const rangeSet2 = new Set(verticalRange.map(([x, y]) => `${x},${y}`));
+            
+            for (let row = 0; row < gridSize2; row++) {
+                for (let col = 0; col < gridSize2; col++) {
+                    const cell = document.createElement('div');
+                    const x = col - centerOffset2;
+                    const y = row - centerOffset2;
+                    const key = `${x},${y}`;
+                    
+                    cell.className = 'range-config-cell';
+                    cell.dataset.x = x;
+                    cell.dataset.y = y;
+                    cell.dataset.level = level;
+                    
+                    if (x === 0 && y === 0) {
+                        cell.classList.add('center-cell');
+                        cell.textContent = '★';
+                    } else if (rangeSet2.has(key)) {
+                        cell.classList.add('active');
+                    }
+                    
+                    cell.addEventListener('click', () => {
+                        if (x === 0 && y === 0) return;
+                        cell.classList.toggle('active');
+                    });
+                    
+                    grid2.appendChild(cell);
+                }
+            }
+            
+            verticalContainer.appendChild(grid2);
+            verticalDiv.appendChild(verticalContainer);
+            div.appendChild(verticalDiv);
+            
+            continue; // 跳过下面的通用处理
+        }
+        
+        // 2-5级的通用处理
         const levelDiv = document.createElement('div');
         levelDiv.style.marginBottom = '30px';
         levelDiv.style.padding = '15px';
@@ -2638,14 +2898,37 @@ function saveConfigData() {
     
     // 保存特殊方块区域（从图形化配置读取）
     for (let level = 1; level <= 5; level++) {
-        const gridContainer = document.querySelector(`.range-grid-container[data-level="${level}"]`);
-        if (gridContainer) {
-            const activeCells = gridContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
-            SPECIAL_BLOCK_RANGE[level] = Array.from(activeCells).map(cell => {
-                const x = parseInt(cell.dataset.x);
-                const y = parseInt(cell.dataset.y);
-                return [x, y];
-            });
+        // 1级特殊方块有两种类型，需要分别处理
+        if (level === 1) {
+            const horizontalContainer = document.querySelector(`.range-grid-container[data-level="1"][data-type="horizontal"]`);
+            const verticalContainer = document.querySelector(`.range-grid-container[data-level="1"][data-type="vertical"]`);
+            
+            if (horizontalContainer) {
+                const activeCells = horizontalContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
+                SPECIAL_BLOCK_RANGE[1]['horizontal'] = Array.from(activeCells).map(cell => {
+                    const x = parseInt(cell.dataset.x);
+                    const y = parseInt(cell.dataset.y);
+                    return [x, y];
+                });
+            }
+            if (verticalContainer) {
+                const activeCells = verticalContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
+                SPECIAL_BLOCK_RANGE[1]['vertical'] = Array.from(activeCells).map(cell => {
+                    const x = parseInt(cell.dataset.x);
+                    const y = parseInt(cell.dataset.y);
+                    return [x, y];
+                });
+            }
+        } else {
+            const gridContainer = document.querySelector(`.range-grid-container[data-level="${level}"]`);
+            if (gridContainer) {
+                const activeCells = gridContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
+                SPECIAL_BLOCK_RANGE[level] = Array.from(activeCells).map(cell => {
+                    const x = parseInt(cell.dataset.x);
+                    const y = parseInt(cell.dataset.y);
+                    return [x, y];
+                });
+            }
         }
     }
     
@@ -2790,8 +3073,7 @@ function saveConfigData() {
     
     localStorage.setItem('gameConfig', JSON.stringify(configToSave));
     
-    // 保存配置时自动增加版本号
-    incrementVersion();
+    // 注意：版本号不再根据配置保存自动递增，而是跟随代码修改手动更新
     
     console.log('配置已保存');
 }

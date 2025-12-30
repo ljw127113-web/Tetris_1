@@ -147,7 +147,7 @@ class GameBoard {
 }
 
 class Block {
-    constructor(level, shape, rotation, isSpecial = false) {
+    constructor(level, shape, rotation, isSpecial = false, rangeType = null) {
         this.level = level;
         this.shape = shape; // 形状类型索引
         this.rotation = rotation; // 0, 90, 180, 270
@@ -155,8 +155,34 @@ class Block {
         this.cells = []; // 每个格子的属性
         this.id = Date.now() + Math.random();
         
+        // 特殊方块的加成区域类型（仅1级需要，其他等级固定）
+        if (isSpecial && level === 1) {
+            // 如果没有指定 rangeType，随机选择
+            if (rangeType === null) {
+                this.rangeType = Math.random() < 0.5 ? 'horizontal' : 'vertical';
+            } else {
+                this.rangeType = rangeType;
+            }
+        } else if (isSpecial) {
+            // 2级及以上特殊方块没有 rangeType（使用固定区域）
+            this.rangeType = null;
+        }
+        
         if (!isSpecial) {
             this.generateAttributes();
+        }
+    }
+    
+    // 获取特殊方块的加成区域
+    getRange() {
+        if (!this.isSpecial) return null;
+        
+        if (this.level === 1) {
+            // 1级特殊方块根据 rangeType 返回对应区域
+            return SPECIAL_BLOCK_RANGE[1][this.rangeType] || SPECIAL_BLOCK_RANGE[1]['horizontal'];
+        } else {
+            // 2级及以上使用固定区域
+            return SPECIAL_BLOCK_RANGE[this.level] || SPECIAL_BLOCK_RANGE[2];
         }
     }
 
@@ -236,7 +262,26 @@ class Block {
     // 获取工具提示文本
     getTooltipText() {
         if (this.isSpecial) {
-            return `特殊方块 Lv.${this.level}`;
+            const bonus = SPECIAL_BLOCK_BONUS[this.level] || 0;
+            const bonusPercent = (bonus * 100).toFixed(0);
+            const range = this.getRange();
+            const rangeCount = range.length;
+            
+            let text = `特殊方块 Lv.${this.level}\n`;
+            text += `加成比例: ${bonusPercent}%\n`;
+            text += `影响范围: ${rangeCount} 格\n`;
+            text += `\n影响区域坐标:\n`;
+            
+            // 显示影响区域的坐标（限制显示数量，避免太长）
+            const displayRange = range.slice(0, 10); // 最多显示10个坐标
+            displayRange.forEach(([x, y]) => {
+                text += `(${x}, ${y}) `;
+            });
+            if (range.length > 10) {
+                text += `\n... 还有 ${range.length - 10} 个格子`;
+            }
+            
+            return text;
         }
         
         let text = `等级: ${this.level}\n`;
@@ -285,7 +330,7 @@ class AttributeCalculator {
 
         // 应用特殊方块加成
         this.gameBoard.specialBlocks.forEach(({ block, x, y }) => {
-            const range = SPECIAL_BLOCK_RANGE[block.level] || SPECIAL_BLOCK_RANGE[1];
+            const range = block.getRange();
             const bonus = SPECIAL_BLOCK_BONUS[block.level] || SPECIAL_BLOCK_BONUS[1];
             
             range.forEach(([dx, dy]) => {
@@ -366,7 +411,9 @@ class GachaSystem {
         
         // 检查特殊方块（只能抽取到1级，且只能在高级宝箱中获取）
         if (rand < GACHA_PROBABILITY.high.special) {
-            return new Block(1, 0, 0, true);
+            // 等概率随机选择横向或纵向加成的1级特殊方块
+            const rangeType = Math.random() < 0.5 ? 'horizontal' : 'vertical';
+            return new Block(1, 0, 0, true, rangeType);
         }
         
         // 普通方块
