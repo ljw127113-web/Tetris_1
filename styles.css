@@ -151,7 +151,23 @@ body {
 }
 
 .board-block:hover {
-    opacity: 0.8;
+    opacity: 1;
+}
+
+/* 悬停时，为方块内的每个格子添加轮廓，精确到方块形状 */
+.board-block:hover .block-cell {
+    outline: 3px solid #3498db;
+    outline-offset: -1px;
+    box-shadow: 0 0 8px rgba(52, 152, 219, 0.8), inset 0 0 5px rgba(52, 152, 219, 0.4);
+    transition: outline 0.2s, box-shadow 0.2s;
+}
+
+/* 特殊方块也需要轮廓 */
+.board-block:hover .special-block {
+    outline: 3px solid #3498db;
+    outline-offset: -1px;
+    box-shadow: 0 0 8px rgba(52, 152, 219, 0.8), inset 0 0 5px rgba(52, 152, 219, 0.4);
+    transition: outline 0.2s, box-shadow 0.2s;
 }
 
 .board-info {
@@ -535,19 +551,20 @@ body {
     color: white;
     font-weight: bold;
     box-shadow: 0 2px 4px rgba(0,0,0,0.5);
-    top: -5px;
-    right: -5px;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     z-index: 20;
     animation: iconPulse 2s infinite;
 }
 
 @keyframes iconPulse {
     0%, 100% {
-        transform: scale(1);
+        transform: translate(-50%, -50%) scale(1);
         box-shadow: 0 2px 4px rgba(0,0,0,0.5);
     }
     50% {
-        transform: scale(1.15);
+        transform: translate(-50%, -50%) scale(1.15);
         box-shadow: 0 4px 8px rgba(243, 156, 18, 0.8);
     }
 }

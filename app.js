@@ -2007,6 +2007,9 @@ function loadGachaCounts() {
 setInterval(saveGameData, 30000); // 每30秒自动保存
 
 // 渲染数据配置页面
+// 配置自动保存防抖定时器
+let configSaveTimer = null;
+
 function renderConfigPage() {
     const content = document.getElementById('config-page-content');
     content.innerHTML = '';
@@ -2044,6 +2047,50 @@ function renderConfigPage() {
                     renderSchemeCountTable(content);
                     break;
     }
+    
+    // 为所有输入框添加自动保存事件监听器
+    setupAutoSaveForConfigInputs(content);
+}
+
+// 为配置页面的所有输入框设置自动保存
+function setupAutoSaveForConfigInputs(container) {
+    // 清除之前的定时器
+    if (configSaveTimer) {
+        clearTimeout(configSaveTimer);
+    }
+    
+    // 使用事件委托，为容器添加统一的 change 事件监听器
+    container.addEventListener('change', (e) => {
+        if (e.target.tagName === 'INPUT' && e.target.type === 'number') {
+            // 使用防抖，延迟500ms后保存
+            if (configSaveTimer) {
+                clearTimeout(configSaveTimer);
+            }
+            configSaveTimer = setTimeout(() => {
+                saveConfigData();
+                console.log('配置已自动保存，版本号已更新');
+            }, 500);
+        }
+    }, true); // 使用捕获阶段，确保能捕获到所有事件
+    
+    // 为特殊方块区域的点击事件添加自动保存（使用事件委托）
+    container.addEventListener('click', (e) => {
+        if (e.target.classList.contains('range-config-cell')) {
+            const cell = e.target;
+            const x = parseInt(cell.dataset.x);
+            const y = parseInt(cell.dataset.y);
+            if (x === 0 && y === 0) return; // 中心格子不能切换
+            
+            // 使用防抖，延迟500ms后保存
+            if (configSaveTimer) {
+                clearTimeout(configSaveTimer);
+            }
+            configSaveTimer = setTimeout(() => {
+                saveConfigData();
+                console.log('配置已自动保存，版本号已更新');
+            }, 500);
+        }
+    }, true);
 }
 
 // 渲染属性等级表
@@ -2353,6 +2400,10 @@ function renderBoardExpansionTable(container) {
         const newCount = lastRule ? lastRule.count + 3 : 28;
         BOARD_EXPANSION_RULES.push({ level: newLevel, count: newCount });
         renderRules();
+        // 重新设置自动保存（因为DOM已更新）
+        setTimeout(() => {
+            setupAutoSaveForConfigInputs(container);
+        }, 100);
     });
     
     // 删除规则
@@ -2362,6 +2413,18 @@ function renderBoardExpansionTable(container) {
             if (BOARD_EXPANSION_RULES.length > 1) {
                 BOARD_EXPANSION_RULES.splice(index, 1);
                 renderRules();
+                // 重新设置自动保存（因为DOM已更新）
+                setTimeout(() => {
+                    setupAutoSaveForConfigInputs(container);
+                    // 触发自动保存
+                    if (configSaveTimer) {
+                        clearTimeout(configSaveTimer);
+                    }
+                    configSaveTimer = setTimeout(() => {
+                        saveConfigData();
+                        console.log('配置已自动保存，版本号已更新');
+                    }, 500);
+                }, 100);
             } else {
                 alert('至少需要保留一条规则');
             }
