@@ -855,16 +855,7 @@ function updateAttributeDisplay() {
     levelInfo.innerHTML = `<strong>总等级: ${totalLevel}</strong>`;
     display.appendChild(levelInfo);
     
-    // 显示宝箱开启次数
-    const gachaInfo = document.createElement('div');
-    gachaInfo.className = 'gacha-count-info';
-    gachaInfo.innerHTML = `
-        <div>低级宝箱: ${gachaCounts.low} 次</div>
-        <div>高级宝箱: ${gachaCounts.high} 次</div>
-    `;
-    display.appendChild(gachaInfo);
-    
-    // 更新钥匙和活跃天数显示
+    // 更新钥匙和活跃天数显示（钥匙显示中已包含宝箱开启次数）
     updateSilverKeysDisplay();
     updateGoldKeysDisplay();
     const attributes = attributeCalculator.calculateTotalAttributes();
@@ -932,7 +923,7 @@ function updateAttributeDisplay() {
 function updateSilverKeysDisplay() {
     const display = document.getElementById('silver-keys-display');
     if (display) {
-        display.textContent = `银色钥匙: ${silverKeys}`;
+        display.textContent = `银色钥匙: ${silverKeys} | 低级宝箱: ${gachaCounts.low} 次`;
     }
     
     // 更新宝箱页面的钥匙显示
@@ -960,7 +951,7 @@ function updateSilverKeysDisplay() {
 function updateGoldKeysDisplay() {
     const display = document.getElementById('gold-keys-display');
     if (display) {
-        display.textContent = `金色钥匙: ${goldKeys}`;
+        display.textContent = `金色钥匙: ${goldKeys} | 高级宝箱: ${gachaCounts.high} 次`;
     }
     
     // 更新宝箱页面的钥匙显示
@@ -992,7 +983,10 @@ function updateActiveDaysDisplay() {
         display.innerHTML = `
             <div class="active-days-info">
                 <h4>活跃天数: 第 ${activeDays} 天</h4>
-                <button id="next-day-btn" class="next-day-btn">下一天</button>
+                <div class="day-buttons">
+                    <button id="next-day-btn" class="next-day-btn">下一天</button>
+                    <button id="next-ten-days-btn" class="next-day-btn">下十天</button>
+                </div>
             </div>
         `;
         
@@ -1002,6 +996,15 @@ function updateActiveDaysDisplay() {
             nextDayBtn.dataset.bound = 'true';
             nextDayBtn.addEventListener('click', () => {
                 nextDay();
+            });
+        }
+        
+        // 绑定下十天按钮事件
+        const nextTenDaysBtn = document.getElementById('next-ten-days-btn');
+        if (nextTenDaysBtn && !nextTenDaysBtn.dataset.bound) {
+            nextTenDaysBtn.dataset.bound = 'true';
+            nextTenDaysBtn.addEventListener('click', () => {
+                nextTenDays();
             });
         }
     }
@@ -1034,6 +1037,40 @@ function nextDay() {
         }
         if (reward.goldKeys > 0) {
             rewardText += `金色钥匙 x${reward.goldKeys}\n`;
+        }
+        alert(rewardText);
+    } else {
+        updateActiveDaysDisplay();
+        saveGameData();
+        alert(`已进入第 ${activeDays} 天（无奖励）`);
+    }
+}
+
+// 下十天功能
+function nextTenDays() {
+    const startDay = activeDays;
+    activeDays += 10;
+    
+    // 根据角色获取每天固定奖励，乘以10倍
+    const reward = getActiveDayReward();
+    if (reward) {
+        const totalSilverKeys = (reward.silverKeys || 0) * 10;
+        const totalGoldKeys = (reward.goldKeys || 0) * 10;
+        
+        silverKeys += totalSilverKeys;
+        goldKeys += totalGoldKeys;
+        
+        updateSilverKeysDisplay();
+        updateGoldKeysDisplay();
+        updateActiveDaysDisplay();
+        saveGameData();
+        
+        let rewardText = `第 ${startDay + 1} 天到第 ${activeDays} 天奖励（10天）：\n`;
+        if (totalSilverKeys > 0) {
+            rewardText += `银色钥匙 x${totalSilverKeys}\n`;
+        }
+        if (totalGoldKeys > 0) {
+            rewardText += `金色钥匙 x${totalGoldKeys}\n`;
         }
         alert(rewardText);
     } else {
@@ -1715,8 +1752,8 @@ function autoMerge(levelStr) {
     }
     
     // 创建新方块
+    const newLevel = levelNum + 1;
     for (let i = 0; i < mergeCount; i++) {
-        const newLevel = levelNum + 1;
         if (isSpecial) {
             // 创建特殊方块
             const newBlock = new Block(newLevel, 0, 0, true);

@@ -689,6 +689,12 @@ body {
     box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
 }
 
+.day-buttons {
+    display: flex;
+    gap: 15px;
+    margin-top: 10px;
+}
+
 .next-day-btn {
     padding: 12px 30px;
     background: #2ecc71;
