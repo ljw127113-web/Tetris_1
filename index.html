@@ -19,6 +19,10 @@
         <div id="board-page" class="page active">
             <div class="board-container">
                 <div class="board-wrapper">
+                    <div class="board-info board-info-left">
+                        <h3>底板扩展</h3>
+                        <div id="expansion-progress-display" class="expansion-progress-display"></div>
+                    </div>
                     <div id="game-board" class="game-board"></div>
                     <div class="board-info">
                         <div class="scheme-selector">
@@ -27,6 +31,7 @@
                         </div>
                         <h3>属性总值</h3>
                         <div id="attribute-display" class="attribute-display"></div>
+                        <div id="board-player-role-display" class="player-role-info-board">当前角色: 非R</div>
                         <div id="board-active-days-display" class="active-days-info-board">活跃天数: 第 1 天</div>
                         <div id="silver-keys-display" class="keys-display">银色钥匙: 0</div>
                         <div id="gold-keys-display" class="keys-display gold-keys">金色钥匙: 0</div>
@@ -53,6 +58,7 @@
                         <div class="gacha-buttons">
                             <button class="gacha-btn" data-type="low" data-count="1">开1次 (消耗1把钥匙)</button>
                             <button class="gacha-btn" data-type="low" data-count="10">开10次 (消耗10把钥匙)</button>
+                            <button class="gacha-btn" data-type="low" data-count="100">开100次 (消耗100把钥匙)</button>
                         </div>
                     </div>
                     <div class="gacha-box">
@@ -125,7 +131,7 @@
 
     <!-- 版本号显示 -->
     <div class="version-info">
-        <span id="version-display">版本号: 1.1.93</span>
+        <span id="version-display">版本号: 1.0.0</span>
     </div>
 
     <script src="data.js"></script>

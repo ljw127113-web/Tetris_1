@@ -177,6 +177,44 @@ body {
     min-width: 250px;
 }
 
+.board-info-left {
+    order: -1; /* 确保左侧信息在游戏板之前 */
+}
+
+.expansion-progress-display {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.current-total-level {
+    margin-bottom: 10px;
+    padding: 8px;
+    background: #e8f5e9;
+    border-radius: 4px;
+    font-size: 14px;
+    color: #2c3e50;
+}
+
+.expansion-progress-item {
+    padding: 8px 12px;
+    border-radius: 4px;
+    font-size: 13px;
+    transition: all 0.3s;
+    line-height: 1.5;
+}
+
+.expansion-progress-item.reached {
+    background: #c8e6c9;
+    color: #2e7d32;
+    font-weight: bold;
+}
+
+.expansion-progress-item.not-reached {
+    background: #e0e0e0;
+    color: #757575;
+}
+
 .clear-board-btn {
     margin-top: 15px;
     padding: 10px 20px;
@@ -753,6 +791,24 @@ body {
     margin: 0 0 15px 0;
     color: #2c3e50;
     font-size: 18px;
+}
+
+.player-role-info-board {
+    margin: 10px 0 15px 0;
+    padding: 10px;
+    background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+    color: white;
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.role-avatar {
+    display: inline-block;
+    font-size: 18px;
+    margin-right: 6px;
+    vertical-align: middle;
+    line-height: 1;
 }
 
 .active-days-info-board {

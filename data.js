@@ -147,6 +147,15 @@ let ACTIVE_DAY_REWARDS = {
     '超R': { silverKeys: 30, goldKeys: 8 }
 };
 
+// 角色头像配置（风格统一的角色头像）
+const PLAYER_ROLE_AVATARS = {
+    '非R': '🟢',  // 绿色圆形 - 基础角色
+    '小R': '🟡',  // 黄色圆形 - 小R角色
+    '中R': '🟠',  // 橙色圆形 - 中R角色
+    '大R': '🔴',  // 红色圆形 - 大R角色
+    '超R': '🟣'   // 紫色圆形 - 超R角色
+};
+
 // 底板方案数量配置
 let BOARD_SCHEME_COUNT = 3; // 默认3个方案
 

@@ -13,20 +13,159 @@ let silverKeys = 10; // 银色钥匙数量（初始10个）
 let goldKeys = 1; // 金色钥匙数量（初始1个）
 let activeDays = 0; // 活跃天数（从0天开始）
 let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
+let reachedExpansionLevels = new Set(); // 已完成的扩展等级（全局，首次达到某个等级要求时标记为完成）
 
-// 版本号管理
-// 版本号应该在代码中手动管理，每次代码修改时手动更新最后一位
-const CODE_VERSION = '1.1.93'; // 代码版本号，每次代码修改时手动更新
+// 版本号管理 - 自动递增系统
+// 版本号基于代码内容自动检测变化并递增
 
-function getVersion() {
-    // 直接返回代码中定义的版本号，不从localStorage读取
-    return CODE_VERSION;
+// 简单的字符串hash函数
+function simpleHash(str) {
+    let hash = 0;
+    if (!str) return '0';
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash; // 转换为32位整数
+    }
+    return Math.abs(hash).toString(36); // 转换为36进制字符串
 }
 
+// 获取当前代码的签名hash
+// 通过检查关键函数和代码特征来生成唯一标识
+function getCodeSignatureHash() {
+    try {
+        // 收集关键代码特征来生成hash
+        let codeFeatures = '';
+        
+        // 1. 关键配置值（从data.js中）- 这些是代码的核心部分
+        if (typeof BOARD_EXPANSION_RULES !== 'undefined') {
+            codeFeatures += JSON.stringify(BOARD_EXPANSION_RULES);
+        }
+        if (typeof ACTIVE_DAY_REWARDS !== 'undefined') {
+            codeFeatures += JSON.stringify(ACTIVE_DAY_REWARDS);
+        }
+        if (typeof GACHA_PROBABILITY !== 'undefined') {
+            codeFeatures += JSON.stringify(GACHA_PROBABILITY);
+        }
+        if (typeof ATTRIBUTE_LEVEL_TABLE !== 'undefined') {
+            codeFeatures += JSON.stringify(ATTRIBUTE_LEVEL_TABLE);
+        }
+        
+        // 2. 关键类的关键方法签名（取前一部分以避免过大）
+        if (typeof GameBoard !== 'undefined' && GameBoard.prototype) {
+            const methods = ['expandCells', 'getTotalLevel', 'placeBlock'];
+            methods.forEach(method => {
+                if (GameBoard.prototype[method]) {
+                    codeFeatures += GameBoard.prototype[method].toString().substring(0, 200);
+                }
+            });
+        }
+        if (typeof Block !== 'undefined' && Block.prototype) {
+            const methods = ['generateAttributes', 'getRange'];
+            methods.forEach(method => {
+                if (Block.prototype[method]) {
+                    codeFeatures += Block.prototype[method].toString().substring(0, 200);
+                }
+            });
+        }
+        
+        // 3. 关键全局函数（不包括版本号相关函数，避免循环）
+        if (typeof updateAttributeDisplay === 'function') {
+            codeFeatures += updateAttributeDisplay.toString().substring(0, 300);
+        }
+        if (typeof openChest === 'function') {
+            codeFeatures += openChest.toString().substring(0, 300);
+        }
+        
+        // 4. 脚本文件的信息
+        const scripts = Array.from(document.querySelectorAll('script[src]'));
+        const scriptSources = scripts.map(s => {
+            const src = s.getAttribute('src');
+            return src ? src.split('/').pop() : '';
+        }).sort().join('|');
+        codeFeatures += scriptSources;
+        
+        return simpleHash(codeFeatures);
+    } catch (e) {
+        console.warn('生成代码hash失败，使用fallback:', e);
+        // fallback: 返回一个固定值，这样不会导致每次刷新都变化
+        return simpleHash('code-signature-fallback');
+    }
+}
+
+// 版本号管理函数
+function initializeVersion() {
+    const VERSION_STORAGE_KEY = 'tetris_game_version';
+    const CODE_HASH_STORAGE_KEY = 'tetris_code_hash';
+    const VERSION_RESET_FLAG = 'tetris_version_reset_done';
+    
+    // 检查是否需要重置版本号（首次运行或版本号系统更新）
+    const resetDone = localStorage.getItem(VERSION_RESET_FLAG);
+    if (!resetDone) {
+        // 首次运行或版本号系统更新，重置为1.0.0
+        localStorage.setItem(VERSION_STORAGE_KEY, '1.0.0');
+        localStorage.removeItem(CODE_HASH_STORAGE_KEY);
+        localStorage.setItem(VERSION_RESET_FLAG, 'true');
+        console.log('版本号系统已重置，初始版本号: 1.0.0');
+    }
+    
+    // 从localStorage读取当前版本号
+    let currentVersion = localStorage.getItem(VERSION_STORAGE_KEY);
+    if (!currentVersion) {
+        // 如果版本号不存在，初始化为1.0.0
+        currentVersion = '1.0.0';
+        localStorage.setItem(VERSION_STORAGE_KEY, currentVersion);
+    }
+    
+    // 获取当前代码签名hash（延迟执行以确保所有脚本已加载）
+    // 使用setTimeout确保在DOM和所有脚本加载完成后执行
+    setTimeout(() => {
+        try {
+            const currentCodeHash = getCodeSignatureHash();
+            const lastCodeHash = localStorage.getItem(CODE_HASH_STORAGE_KEY);
+            
+            // 如果代码hash变化了（且不是首次加载），版本号最后一位+1
+            if (lastCodeHash && lastCodeHash !== currentCodeHash) {
+                const versionParts = currentVersion.split('.');
+                if (versionParts.length === 3) {
+                    const lastDigit = parseInt(versionParts[2]) || 0;
+                    versionParts[2] = (lastDigit + 1).toString();
+                    const newVersion = versionParts.join('.');
+                    localStorage.setItem(VERSION_STORAGE_KEY, newVersion);
+                    currentVersion = newVersion;
+                    console.log('检测到代码变化，版本号已自动更新:', newVersion);
+                    
+                    // 更新显示
+                    const display = document.getElementById('version-display');
+                    if (display) {
+                        display.textContent = `版本号: ${newVersion}`;
+                    }
+                }
+            }
+            
+            // 保存当前代码hash
+            localStorage.setItem(CODE_HASH_STORAGE_KEY, currentCodeHash);
+        } catch (e) {
+            console.warn('版本号检测失败:', e);
+        }
+    }, 100); // 延迟100ms确保所有脚本加载完成
+    
+    return currentVersion;
+}
+
+// 获取版本号（同步版本，用于显示）
+function getVersion() {
+    const VERSION_STORAGE_KEY = 'tetris_game_version';
+    const version = localStorage.getItem(VERSION_STORAGE_KEY);
+    return version || '1.0.0';
+}
+
+// 更新版本号显示
 function updateVersionDisplay() {
     const display = document.getElementById('version-display');
     if (display) {
-        const version = getVersion();
+        // 初始化并获取版本号
+        const version = initializeVersion();
         display.textContent = `版本号: ${version}`;
         console.log('版本号显示已更新:', version);
     } else {
@@ -58,6 +197,8 @@ document.addEventListener('DOMContentLoaded', () => {
     updateSilverKeysDisplay();
     updateGoldKeysDisplay();
     updateActiveDaysDisplay();
+    updatePlayerRoleDisplay();
+    updateExpansionProgressDisplay();
 });
 
 // 初始化多个游戏板方案
@@ -1020,6 +1161,64 @@ function updateAttributeDisplay() {
     });
     
     previousAttributes = { ...attributes };
+    
+    // 同时更新扩展进度显示
+    updateExpansionProgressDisplay();
+}
+
+// 更新扩展进度显示
+function updateExpansionProgressDisplay() {
+    const display = document.getElementById('expansion-progress-display');
+    if (!display) return;
+    
+    display.innerHTML = '';
+    
+    const gameBoard = getCurrentGameBoard();
+    const totalLevel = gameBoard.getTotalLevel();
+    
+    // 显示当前总等级
+    const currentLevelInfo = document.createElement('div');
+    currentLevelInfo.className = 'current-total-level';
+    currentLevelInfo.innerHTML = `<strong>当前总等级: ${totalLevel}</strong>`;
+    display.appendChild(currentLevelInfo);
+    
+    // 显示所有扩展要求
+    // 初始格子数量（从game.js中的GameBoard类获取）
+    const initialCellCount = 25;
+    
+    BOARD_EXPANSION_RULES.forEach((rule, index) => {
+        const item = document.createElement('div');
+        item.className = 'expansion-progress-item';
+        
+        const isReached = reachedExpansionLevels.has(rule.level);
+        const isCurrentlyMet = totalLevel >= rule.level;
+        
+        // 如果当前满足要求且之前未完成，标记为完成
+        if (isCurrentlyMet && !isReached) {
+            reachedExpansionLevels.add(rule.level);
+            saveGameData();
+        }
+        
+        // 确定最终的完成状态（标记后重新检查）
+        const finalReached = reachedExpansionLevels.has(rule.level);
+        
+        // 设置样式类
+        if (finalReached) {
+            item.classList.add('reached');
+        } else {
+            item.classList.add('not-reached');
+        }
+        
+        // 计算格子数增量
+        const previousCount = index === 0 ? initialCellCount : BOARD_EXPANSION_RULES[index - 1].count;
+        const increment = rule.count - previousCount;
+        
+        // 创建文本内容：例如"总等级 15 → 底板格子数+3 （总共 28 格）"
+        const textContent = `总等级 ${rule.level} → 底板格子数+${increment} （总共 ${rule.count} 格）`;
+        item.textContent = textContent;
+        
+        display.appendChild(item);
+    });
 }
 
 // 更新银色钥匙显示
@@ -1116,6 +1315,18 @@ function updateActiveDaysDisplay() {
     const boardDisplay = document.getElementById('board-active-days-display');
     if (boardDisplay) {
         boardDisplay.textContent = `活跃天数: 第 ${activeDays} 天`;
+    }
+    
+    // 更新底板页面的角色显示
+    updatePlayerRoleDisplay();
+}
+
+// 更新底板页面的角色显示
+function updatePlayerRoleDisplay() {
+    const roleDisplay = document.getElementById('board-player-role-display');
+    if (roleDisplay) {
+        const avatar = PLAYER_ROLE_AVATARS[playerRole] || '👤';
+        roleDisplay.innerHTML = `<span class="role-avatar">${avatar}</span> 当前角色: ${playerRole}`;
     }
 }
 
@@ -1550,18 +1761,22 @@ function resetSystem() {
     activeDays = 0;
     updateActiveDaysDisplay();
     
-    // 8. 清除选择状态
+    // 8. 重置扩展进度（清除所有已完成的扩展等级）
+    reachedExpansionLevels.clear();
+    
+    // 9. 清除选择状态
     selectedBlockIds.clear();
     
-    // 7. 从默认配置文件重新加载配置
+    // 10. 从默认配置文件重新加载配置
     loadDefaultConfig();
     
-    // 8. 重新渲染
+    // 11. 重新渲染
     renderBoard();
     renderInventory();
     updateAttributeDisplay();
+    updateExpansionProgressDisplay(); // 更新扩展进度显示
     
-    // 9. 保存游戏数据（不包含配置数据，配置数据会保留）
+    // 12. 保存游戏数据（不包含配置数据，配置数据会保留）
     saveGameData();
     
     console.log('系统已重置（已从默认配置重新加载）');
@@ -1933,7 +2148,8 @@ function saveGameData() {
         silverKeys: silverKeys,
         goldKeys: goldKeys,
         activeDays: activeDays,
-        playerRole: playerRole
+        playerRole: playerRole,
+        reachedExpansionLevels: Array.from(reachedExpansionLevels)
     };
     
     localStorage.setItem('tetrisGameData', JSON.stringify(data));
@@ -1992,6 +2208,14 @@ function loadGameData() {
         // 恢复玩家角色
         if (data.playerRole) {
             playerRole = data.playerRole;
+            updatePlayerRoleDisplay();
+        }
+        
+        // 恢复已完成的扩展等级
+        if (data.reachedExpansionLevels && Array.isArray(data.reachedExpansionLevels)) {
+            reachedExpansionLevels = new Set(data.reachedExpansionLevels);
+        } else {
+            reachedExpansionLevels = new Set();
         }
         
         // 先恢复所有方案的数据（放置方块到底板）
@@ -2712,7 +2936,8 @@ function renderRoleConfigTable(container) {
     ['非R', '小R', '中R', '大R', '超R'].forEach(role => {
         const option = document.createElement('option');
         option.value = role;
-        option.textContent = role;
+        const avatar = PLAYER_ROLE_AVATARS[role] || '👤';
+        option.textContent = `${avatar} ${role}`;
         if (role === playerRole) {
             option.selected = true;
         }
@@ -2722,6 +2947,7 @@ function renderRoleConfigTable(container) {
         playerRole = e.target.value;
         saveGameData();
         updateActiveDaysDisplay();
+        updatePlayerRoleDisplay();
     });
     roleSelectDiv.appendChild(roleSelect);
     div.appendChild(roleSelectDiv);
