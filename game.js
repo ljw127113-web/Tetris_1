@@ -155,16 +155,20 @@ class Block {
         this.cells = []; // 每个格子的属性
         this.id = Date.now() + Math.random();
         
-        // 特殊方块的加成区域类型（仅1级需要，其他等级固定）
-        if (isSpecial && level === 1) {
-            // 如果没有指定 rangeType，随机选择
+        // 特殊方块的区域方案索引（从该等级的所有方案中随机选择）
+        if (isSpecial) {
+            // 如果没有指定 rangeType，随机选择该等级的一个方案
             if (rangeType === null) {
-                this.rangeType = Math.random() < 0.5 ? 'horizontal' : 'vertical';
+                const levelRanges = SPECIAL_BLOCK_RANGE[level] || SPECIAL_BLOCK_RANGE[1];
+                if (Array.isArray(levelRanges) && levelRanges.length > 0) {
+                    this.rangeType = Math.floor(Math.random() * levelRanges.length);
+                } else {
+                    this.rangeType = 0;
+                }
             } else {
                 this.rangeType = rangeType;
             }
-        } else if (isSpecial) {
-            // 2级及以上特殊方块没有 rangeType（使用固定区域）
+        } else {
             this.rangeType = null;
         }
         
@@ -177,13 +181,25 @@ class Block {
     getRange() {
         if (!this.isSpecial) return null;
         
-        if (this.level === 1) {
-            // 1级特殊方块根据 rangeType 返回对应区域
-            return SPECIAL_BLOCK_RANGE[1][this.rangeType] || SPECIAL_BLOCK_RANGE[1]['horizontal'];
-        } else {
-            // 2级及以上使用固定区域
-            return SPECIAL_BLOCK_RANGE[this.level] || SPECIAL_BLOCK_RANGE[2];
+        const levelRanges = SPECIAL_BLOCK_RANGE[this.level] || SPECIAL_BLOCK_RANGE[1];
+        if (Array.isArray(levelRanges) && levelRanges.length > 0) {
+            // rangeType 是方案索引
+            const schemeIndex = this.rangeType !== null && this.rangeType !== undefined ? this.rangeType : 0;
+            return levelRanges[schemeIndex] || levelRanges[0];
         }
+        
+        // 兼容旧格式（向后兼容）
+        if (typeof levelRanges === 'object' && !Array.isArray(levelRanges)) {
+            // 旧格式：1级是对象，其他是数组
+            if (this.level === 1) {
+                return levelRanges[this.rangeType] || levelRanges['horizontal'] || levelRanges[Object.keys(levelRanges)[0]];
+            } else {
+                return levelRanges;
+            }
+        }
+        
+        // 默认返回空数组
+        return [];
     }
 
     // 生成属性
@@ -415,10 +431,17 @@ class GachaSystem {
             level = 3;
         }
         
-        const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
-        const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
+        // 从启用的方块组合中随机选择
+        const enabledCombinations = AVAILABLE_BLOCK_COMBINATIONS.filter(c => c.enabled);
+        if (enabledCombinations.length === 0) {
+            // 如果没有启用的组合，使用默认值
+            const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
+            const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
+            return new Block(level, shape, rotation, false);
+        }
+        const combination = enabledCombinations[Math.floor(Math.random() * enabledCombinations.length)];
         // 明确指定 isSpecial = false，确保不会生成特殊方块
-        return new Block(level, shape, rotation, false);
+        return new Block(level, combination.shape, combination.rotation, false);
     }
 
     static openHighChest() {
@@ -427,9 +450,8 @@ class GachaSystem {
         
         // 检查特殊方块（只能抽取到1级，且只能在高级宝箱中获取）
         if (rand < GACHA_PROBABILITY.high.special) {
-            // 等概率随机选择横向或纵向加成的1级特殊方块
-            const rangeType = Math.random() < 0.5 ? 'horizontal' : 'vertical';
-            return new Block(1, 0, 0, true, rangeType);
+            // 从1级的所有区域方案中随机选择（rangeType现在是索引）
+            return new Block(1, 0, 0, true, null);
         }
         
         // 普通方块
@@ -453,9 +475,16 @@ class GachaSystem {
             level = 5;
         }
         
-        const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
-        const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
-        return new Block(level, shape, rotation);
+        // 从启用的方块组合中随机选择
+        const enabledCombinations = AVAILABLE_BLOCK_COMBINATIONS.filter(c => c.enabled);
+        if (enabledCombinations.length === 0) {
+            // 如果没有启用的组合，使用默认值
+            const shape = Math.floor(Math.random() * TETRIS_SHAPES.length);
+            const rotation = [0, 90, 180, 270][Math.floor(Math.random() * 4)];
+            return new Block(level, shape, rotation);
+        }
+        const combination = enabledCombinations[Math.floor(Math.random() * enabledCombinations.length)];
+        return new Block(level, combination.shape, combination.rotation);
     }
 }
 

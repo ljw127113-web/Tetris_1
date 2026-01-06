@@ -8,12 +8,17 @@ let attributeCalculators = []; // 每个方案的属性计算器
 let previousAttributes = {};
 let dragBlock = null;
 let dragOffset = { x: 0, y: 0 };
+let selectedBlock = null; // 当前选中的方块（用于旋转）
+let rotationControlPanel = null; // 旋转控制面板
 let gachaCounts = { low: 0, high: 0 }; // 宝箱开启次数统计
 let silverKeys = 10; // 银色钥匙数量（初始10个）
 let goldKeys = 1; // 金色钥匙数量（初始1个）
 let activeDays = 0; // 活跃天数（从0天开始）
 let playerRole = '非R'; // 玩家角色：非R、小R、中R、大R、超R
 let reachedExpansionLevels = new Set(); // 已完成的扩展等级（全局，首次达到某个等级要求时标记为完成）
+let refineCount = 0; // 累计洗练次数
+let boardLevel = 0; // 底板等级（从0级开始）
+let boardExp = 0; // 底板积分经验
 
 // 版本号管理 - 自动递增系统
 // 版本号基于代码内容自动检测变化并递增
@@ -703,6 +708,9 @@ function setupDragAndDrop() {
         // 检查是否点击了底板上的方块
         const boardBlockEl = e.target.closest('.board-block');
         if (boardBlockEl) {
+            // 清除选择状态
+            clearBlockSelection();
+            
             const blockId = boardBlockEl.dataset.blockId;
             dragBlock = playerInventory.find(b => b.id == blockId);
             if (dragBlock) {
@@ -755,30 +763,31 @@ function setupDragAndDrop() {
         
         // 检查是否点击了背包中的方块
         const blockEl = e.target.closest('.block');
-        if (!blockEl || blockEl.classList.contains('in-use')) return;
+        if (!blockEl || blockEl.classList.contains('in-use')) {
+            // 如果点击的不是方块，清除选择
+            if (!e.target.closest('.rotation-control-panel')) {
+                clearBlockSelection();
+            }
+            return;
+        }
+        
+        // 如果点击的是旋转按钮，不处理
+        if (e.target.closest('.rotation-btn')) {
+            return;
+        }
         
         const blockId = blockEl.dataset.blockId;
-        dragBlock = playerInventory.find(b => b.id == blockId);
-        if (!dragBlock) return;
+        const block = playerInventory.find(b => b.id == blockId);
+        if (!block) return;
         
-        blockEl.classList.add('dragging');
-        const blockRect = blockEl.getBoundingClientRect();
-        dragOffset.x = e.clientX - blockRect.left;
-        dragOffset.y = e.clientY - blockRect.top;
+        // 如果点击的是已选中的方块，开始拖放
+        if (selectedBlock && selectedBlock.id === block.id) {
+            startDragging(block, blockEl, e);
+            return;
+        }
         
-        const clone = blockEl.cloneNode(true);
-        clone.style.position = 'fixed';
-        clone.style.pointerEvents = 'none';
-        clone.style.zIndex = '10000';
-        clone.style.transform = 'scale(1.2)';
-        document.body.appendChild(clone);
-        dragBlock.cloneEl = clone;
-        
-        // 更新拖拽偏移，考虑缩放
-        dragOffset.x = dragOffset.x * 1.2;
-        dragOffset.y = dragOffset.y * 1.2;
-        
-        updateDragPosition(e);
+        // 否则，选择方块并显示旋转控制
+        selectBlock(block, blockEl);
     });
     
     document.addEventListener('mousemove', (e) => {
@@ -794,6 +803,311 @@ function setupDragAndDrop() {
             cleanupDrag();
         }
     });
+    
+    // 监听键盘事件：R键旋转选中的方块
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'r' || e.key === 'R') {
+            if (selectedBlock && !dragBlock) {
+                rotateSelectedBlock();
+                e.preventDefault();
+            }
+        }
+    });
+}
+
+// 选择方块并显示旋转控制
+function selectBlock(block, blockEl) {
+    // 清除之前的选择
+    clearBlockSelection();
+    
+    selectedBlock = block;
+    blockEl.classList.add('selected');
+    
+    // 创建旋转控制面板
+    createRotationControlPanel(blockEl);
+}
+
+// 清除方块选择
+function clearBlockSelection() {
+    if (selectedBlock) {
+        document.querySelectorAll('.block.selected').forEach(el => {
+            el.classList.remove('selected');
+        });
+        selectedBlock = null;
+    }
+    
+    if (rotationControlPanel) {
+        rotationControlPanel.remove();
+        rotationControlPanel = null;
+    }
+}
+
+// 创建旋转控制面板
+function createRotationControlPanel(blockEl) {
+    // 移除旧的面板
+    if (rotationControlPanel) {
+        rotationControlPanel.remove();
+    }
+    
+    rotationControlPanel = document.createElement('div');
+    rotationControlPanel.className = 'rotation-control-panel';
+    
+    // 旋转按钮（只对非特殊方块显示）
+    if (selectedBlock && !selectedBlock.isSpecial) {
+        const rotateBtn = document.createElement('button');
+        rotateBtn.className = 'rotation-btn';
+        rotateBtn.innerHTML = '↻ 旋转 (R)';
+        rotateBtn.title = '点击旋转方块90度，或按R键';
+        rotateBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            rotateSelectedBlock();
+        });
+        rotationControlPanel.appendChild(rotateBtn);
+    }
+    
+    // 洗练按钮（只对非特殊方块显示）
+    if (selectedBlock && !selectedBlock.isSpecial) {
+        const refineBtn = document.createElement('button');
+        refineBtn.className = 'refine-btn';
+        refineBtn.innerHTML = '✨ 洗练';
+        refineBtn.title = '重新生成方块属性（保持形状不变）';
+        refineBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            refineSelectedBlock();
+        });
+        rotationControlPanel.appendChild(refineBtn);
+    }
+    
+    const dragHint = document.createElement('div');
+    dragHint.className = 'drag-hint';
+    dragHint.textContent = '点击或拖动方块到底板';
+    
+    rotationControlPanel.appendChild(dragHint);
+    
+    // 定位面板在方块旁边
+    const rect = blockEl.getBoundingClientRect();
+    rotationControlPanel.style.position = 'fixed';
+    rotationControlPanel.style.left = (rect.right + 10) + 'px';
+    rotationControlPanel.style.top = rect.top + 'px';
+    rotationControlPanel.style.zIndex = '10001';
+    
+    document.body.appendChild(rotationControlPanel);
+    
+    // 更新面板位置（如果方块在屏幕边缘）
+    updateRotationPanelPosition(blockEl);
+}
+
+// 更新旋转面板位置
+function updateRotationPanelPosition(blockEl) {
+    if (!rotationControlPanel) return;
+    
+    const rect = blockEl.getBoundingClientRect();
+    const panelRect = rotationControlPanel.getBoundingClientRect();
+    const viewportWidth = window.innerWidth;
+    
+    // 如果面板超出右边界，显示在左边
+    if (rect.right + panelRect.width + 10 > viewportWidth) {
+        rotationControlPanel.style.left = (rect.left - panelRect.width - 10) + 'px';
+    } else {
+        rotationControlPanel.style.left = (rect.right + 10) + 'px';
+    }
+}
+
+// 洗练选中的方块（重新生成属性，保持形状不变）
+function refineSelectedBlock() {
+    if (!selectedBlock || selectedBlock.isSpecial) return; // 特殊方块不能洗练
+    
+    // 保存方块的形状、旋转角度和等级
+    const originalShape = selectedBlock.shape;
+    const originalRotation = selectedBlock.rotation;
+    const originalLevel = selectedBlock.level;
+    
+    // 重新生成属性（使用相同的形状和旋转角度）
+    selectedBlock.cells = [];
+    selectedBlock.generateAttributes();
+    
+    // 确保形状、旋转角度和等级没有被改变
+    selectedBlock.shape = originalShape;
+    selectedBlock.rotation = originalRotation;
+    selectedBlock.level = originalLevel;
+    
+    // 增加洗练次数
+    refineCount++;
+    
+    // 更新显示
+    renderInventory();
+    
+    // 如果方块在底板上，也需要更新底板显示和属性显示
+    const gameBoard = getCurrentGameBoard();
+    const blockData = [...gameBoard.blocks, ...gameBoard.specialBlocks].find(b => b.block === selectedBlock);
+    if (blockData) {
+        // 方块在底板上，更新底板显示
+        renderBoard();
+        updateAttributeDisplay();
+    }
+    
+    // 更新旋转控制面板位置（因为方块可能重新渲染）
+    const blockEl = document.querySelector(`.block[data-block-id="${selectedBlock.id}"]`);
+    if (blockEl) {
+        createRotationControlPanel(blockEl);
+    }
+    
+    // 保存游戏数据
+    saveGameData();
+}
+
+// 旋转选中的方块
+function rotateSelectedBlock() {
+    if (!selectedBlock || selectedBlock.isSpecial) return; // 特殊方块不能旋转
+    
+    // 旋转90度
+    const currentRotation = selectedBlock.rotation;
+    const newRotation = (currentRotation + 90) % 360;
+    
+    // 保存原有的cells（包括坐标和属性）
+    const oldCells = selectedBlock.cells.map(cell => ({
+        x: cell.x,
+        y: cell.y,
+        primaryAttr: cell.primaryAttr,
+        primaryValue: cell.primaryValue,
+        secondaryAttr: cell.secondaryAttr,
+        secondaryValue: cell.secondaryValue
+    }));
+    
+    // 获取原始形状（rotation=0时的形状）
+    const baseShape = TETRIS_SHAPES[selectedBlock.shape];
+    
+    // 计算当前角度下的归一化坐标
+    const currentRotatedShape = selectedBlock.rotateShape(baseShape, currentRotation);
+    const currentMinX = Math.min(...currentRotatedShape.map(([x]) => x));
+    const currentMinY = Math.min(...currentRotatedShape.map(([, y]) => y));
+    const currentNormalizedShape = currentRotatedShape.map(([x, y]) => [x - currentMinX, y - currentMinY]);
+    
+    // 计算新角度下的归一化坐标
+    const newRotatedShape = selectedBlock.rotateShape(baseShape, newRotation);
+    const newMinX = Math.min(...newRotatedShape.map(([x]) => x));
+    const newMinY = Math.min(...newRotatedShape.map(([, y]) => y));
+    const newNormalizedShape = newRotatedShape.map(([x, y]) => [x - newMinX, y - newMinY]);
+    
+    // 建立新归一化坐标到索引的映射
+    const newCoordToIndex = new Map();
+    newNormalizedShape.forEach(([x, y], index) => {
+        newCoordToIndex.set(`${x},${y}`, index);
+    });
+    
+    // 对于每个旧cell，计算它旋转后的新坐标，然后找到对应的新索引
+    // rotateShape是逆时针旋转：旧坐标[x,y] -> 新坐标[-y,x]
+    // 注意：oldCells中的坐标是归一化后的坐标，直接旋转即可
+    const oldIndexToNewIndex = new Map();
+    oldCells.forEach((oldCell, oldIndex) => {
+        // 获取旧cell的坐标
+        const [oldX, oldY] = [oldCell.x, oldCell.y];
+        
+        // 将旧坐标逆时针旋转90度
+        // 逆时针旋转90度：[x, y] -> [-y, x]
+        const rotatedX = -oldY;
+        const rotatedY = oldX;
+        
+        // 在新归一化形状中查找匹配的坐标
+        const rotatedKey = `${rotatedX},${rotatedY}`;
+        let newIndex = newCoordToIndex.get(rotatedKey);
+        
+        // 如果找不到精确匹配，尝试查找最接近的坐标
+        if (newIndex === undefined) {
+            let minDist = Infinity;
+            let closestIndex = -1;
+            for (let i = 0; i < newNormalizedShape.length; i++) {
+                const [nx, ny] = newNormalizedShape[i];
+                const dist = Math.abs(nx - rotatedX) + Math.abs(ny - rotatedY);
+                if (dist < minDist) {
+                    minDist = dist;
+                    closestIndex = i;
+                }
+            }
+            newIndex = closestIndex;
+        }
+        
+        if (newIndex !== undefined && newIndex >= 0) {
+            oldIndexToNewIndex.set(oldIndex, newIndex);
+        }
+    });
+    
+    // 建立新索引到旧索引的反向映射
+    const newIndexToOldIndex = new Map();
+    oldIndexToNewIndex.forEach((newIdx, oldIdx) => {
+        // 如果新索引还没有映射，或者当前旧索引更合适，则更新
+        if (!newIndexToOldIndex.has(newIdx)) {
+            newIndexToOldIndex.set(newIdx, oldIdx);
+        }
+    });
+    
+    // 创建新的cells数组，按照newNormalizedShape的顺序
+    selectedBlock.cells = newNormalizedShape.map(([newX, newY], newIndex) => {
+        // 找到对应新索引的旧索引
+        const oldIndex = newIndexToOldIndex.get(newIndex);
+        
+        // 如果找到了对应的旧索引，使用对应的旧cell
+        if (oldIndex !== undefined && oldIndex >= 0 && oldIndex < oldCells.length) {
+            const oldCell = oldCells[oldIndex];
+            return {
+                x: newX,
+                y: newY,
+                primaryAttr: oldCell.primaryAttr,
+                primaryValue: oldCell.primaryValue,
+                secondaryAttr: oldCell.secondaryAttr,
+                secondaryValue: oldCell.secondaryValue
+            };
+        } else {
+            // Fallback：如果找不到，使用索引对应的旧cell（假设顺序一致）
+            const fallbackIndex = newIndex < oldCells.length ? newIndex : 0;
+            const fallbackCell = oldCells[fallbackIndex];
+            return {
+                x: newX,
+                y: newY,
+                primaryAttr: fallbackCell.primaryAttr,
+                primaryValue: fallbackCell.primaryValue,
+                secondaryAttr: fallbackCell.secondaryAttr,
+                secondaryValue: fallbackCell.secondaryValue
+            };
+        }
+    });
+    
+    // 更新旋转角度
+    selectedBlock.rotation = newRotation;
+    
+    // 更新显示
+    renderInventory();
+    
+    // 更新旋转控制面板位置
+    const blockEl = document.querySelector(`.block[data-block-id="${selectedBlock.id}"]`);
+    if (blockEl) {
+        createRotationControlPanel(blockEl);
+    }
+}
+
+// 开始拖放
+function startDragging(block, blockEl, e) {
+    dragBlock = block;
+    clearBlockSelection(); // 清除选择状态
+    
+    blockEl.classList.add('dragging');
+    const blockRect = blockEl.getBoundingClientRect();
+    dragOffset.x = e.clientX - blockRect.left;
+    dragOffset.y = e.clientY - blockRect.top;
+    
+    const clone = blockEl.cloneNode(true);
+    clone.style.position = 'fixed';
+    clone.style.pointerEvents = 'none';
+    clone.style.zIndex = '10000';
+    clone.style.transform = 'scale(1.2)';
+    document.body.appendChild(clone);
+    dragBlock.cloneEl = clone;
+    
+    // 更新拖拽偏移，考虑缩放
+    dragOffset.x = dragOffset.x * 1.2;
+    dragOffset.y = dragOffset.y * 1.2;
+    
+    updateDragPosition(e);
 }
 
 function updateDragPosition(e) {
@@ -1039,12 +1353,9 @@ function handleDrop(e) {
             renderInventory();
             updateAttributeDisplay();
             
-            // 扩展格子（同步到所有方案）
-            const totalLevel = gameBoard.getTotalLevel();
-            const newCellCount = expandCellsForAllSchemes(totalLevel);
-            if (newCellCount > gameBoards[0].initialCellCount) {
-                renderBoard();
-            }
+            // 底板扩展现在基于底板等级，不再基于总等级
+            // 检查并升级底板等级（如果经验足够）
+            checkAndUpgradeBoardLevel();
         } else {
             // 方块放置失败
         }
@@ -1082,6 +1393,8 @@ function cleanupDrag() {
         }
         dragBlock = null;
     }
+    // 拖放结束后清除选择
+    clearBlockSelection();
 }
 
 // 更新属性显示
@@ -1162,6 +1475,16 @@ function updateAttributeDisplay() {
     
     previousAttributes = { ...attributes };
     
+    // 显示洗练次数（在清空按钮上方）
+    const refineCountEl = document.createElement('div');
+    refineCountEl.className = 'refine-count-info';
+    refineCountEl.innerHTML = `<strong>累计洗练: ${refineCount} 次</strong>`;
+    refineCountEl.style.marginTop = '15px';
+    refineCountEl.style.paddingTop = '15px';
+    refineCountEl.style.borderTop = '1px solid #ecf0f1';
+    refineCountEl.style.color = '#7f8c8d';
+    display.appendChild(refineCountEl);
+    
     // 同时更新扩展进度显示
     updateExpansionProgressDisplay();
 }
@@ -1173,48 +1496,49 @@ function updateExpansionProgressDisplay() {
     
     display.innerHTML = '';
     
-    const gameBoard = getCurrentGameBoard();
-    const totalLevel = gameBoard.getTotalLevel();
-    
-    // 显示当前总等级
+    // 显示当前底板等级和经验
     const currentLevelInfo = document.createElement('div');
-    currentLevelInfo.className = 'current-total-level';
-    currentLevelInfo.innerHTML = `<strong>当前总等级: ${totalLevel}</strong>`;
+    currentLevelInfo.className = 'current-board-level';
+    currentLevelInfo.innerHTML = `<strong>底板等级: ${boardLevel}</strong><br><small>积分经验: ${boardExp}</small>`;
     display.appendChild(currentLevelInfo);
     
-    // 显示所有扩展要求
-    // 初始格子数量（从game.js中的GameBoard类获取）
-    const initialCellCount = 25;
+    // 显示所有扩展要求（基于底板等级和经验）
+    if (!BOARD_LEVEL_EXP_REQUIREMENTS || !Array.isArray(BOARD_LEVEL_EXP_REQUIREMENTS)) {
+        return;
+    }
     
-    BOARD_EXPANSION_RULES.forEach((rule, index) => {
+    // 初始格子数量
+    const initialCellCount = 25;
+    let currentCellCount = initialCellCount;
+    
+    BOARD_LEVEL_EXP_REQUIREMENTS.forEach((requirement, index) => {
         const item = document.createElement('div');
         item.className = 'expansion-progress-item';
         
-        const isReached = reachedExpansionLevels.has(rule.level);
-        const isCurrentlyMet = totalLevel >= rule.level;
-        
-        // 如果当前满足要求且之前未完成，标记为完成
-        if (isCurrentlyMet && !isReached) {
-            reachedExpansionLevels.add(rule.level);
-            saveGameData();
-        }
-        
-        // 确定最终的完成状态（标记后重新检查）
-        const finalReached = reachedExpansionLevels.has(rule.level);
+        const isReached = boardLevel >= requirement.level;
+        const isCurrentlyMet = boardExp >= requirement.expRequired;
         
         // 设置样式类
-        if (finalReached) {
+        if (isReached) {
+            item.classList.add('reached');
+        } else if (isCurrentlyMet) {
             item.classList.add('reached');
         } else {
             item.classList.add('not-reached');
         }
         
         // 计算格子数增量
-        const previousCount = index === 0 ? initialCellCount : BOARD_EXPANSION_RULES[index - 1].count;
-        const increment = rule.count - previousCount;
+        let cellIncrease = 0;
+        if (BOARD_LEVEL_EXPANSION && Array.isArray(BOARD_LEVEL_EXPANSION)) {
+            const expansion = BOARD_LEVEL_EXPANSION.find(e => e.level === requirement.level);
+            if (expansion) {
+                cellIncrease = expansion.cellIncrease;
+            }
+        }
+        currentCellCount += cellIncrease;
         
-        // 创建文本内容：例如"总等级 15 → 底板格子数+3 （总共 28 格）"
-        const textContent = `总等级 ${rule.level} → 底板格子数+${increment} （总共 ${rule.count} 格）`;
+        // 创建文本内容：例如"底板等级 1 → 需要经验 100 → 底板格子数+3 （总共 28 格）"
+        const textContent = `底板等级 ${requirement.level} → 需要经验 ${requirement.expRequired} → 底板格子数+${cellIncrease} （总共 ${currentCellCount} 格）`;
         item.textContent = textContent;
         
         display.appendChild(item);
@@ -1447,6 +1771,16 @@ function openChest(type, count) {
     // 更新开启次数
     gachaCounts[type] += count;
     updateGachaCounts();
+    
+    // 获得积分经验
+    const expReward = (type === 'low' ? CHEST_EXP_REWARDS.low : CHEST_EXP_REWARDS.high) * count;
+    boardExp += expReward;
+    
+    // 检查并升级底板等级
+    checkAndUpgradeBoardLevel();
+    
+    // 更新显示
+    updateExpansionProgressDisplay();
     
     displayGachaResults(results);
     saveGameData();
@@ -1687,7 +2021,66 @@ function clearBoard() {
     console.log('当前方案底板已清空');
 }
 
-// 扩展所有方案的格子（同步扩展）
+// 检查并升级底板等级
+function checkAndUpgradeBoardLevel() {
+    if (!BOARD_LEVEL_EXP_REQUIREMENTS || !Array.isArray(BOARD_LEVEL_EXP_REQUIREMENTS)) {
+        return;
+    }
+    
+    let hasUpgrade = false;
+    // 检查是否可以升级
+    for (let requirement of BOARD_LEVEL_EXP_REQUIREMENTS) {
+        if (boardExp >= requirement.expRequired && boardLevel < requirement.level) {
+            boardLevel = requirement.level;
+            hasUpgrade = true;
+            
+            // 扩展底板格子
+            expandCellsForAllSchemesByBoardLevel();
+            
+            // 重新渲染底板
+            renderBoard();
+            updateExpansionProgressDisplay();
+        }
+    }
+    
+    if (hasUpgrade) {
+        saveGameData();
+    }
+}
+
+// 扩展所有方案的格子（基于底板等级）
+function expandCellsForAllSchemesByBoardLevel() {
+    if (!BOARD_LEVEL_EXPANSION || !Array.isArray(BOARD_LEVEL_EXPANSION)) {
+        return;
+    }
+    
+    // 初始格子数量
+    const initialCellCount = 25;
+    let targetCellCount = initialCellCount;
+    
+    // 计算当前底板等级应该有多少格子
+    for (let expansion of BOARD_LEVEL_EXPANSION) {
+        if (boardLevel >= expansion.level) {
+            targetCellCount += expansion.cellIncrease;
+        }
+    }
+    
+    // 扩展所有方案到目标格子数
+    gameBoards.forEach((board) => {
+        if (board.currentCellCount < targetCellCount) {
+            const coords = board.generateSpiralCoordinates(targetCellCount);
+            coords.forEach(([x, y]) => {
+                const key = `${x},${y}`;
+                if (!board.cells.has(key)) {
+                    board.cells.set(key, null);
+                }
+            });
+            board.currentCellCount = targetCellCount;
+        }
+    });
+}
+
+// 扩展所有方案的格子（同步扩展）- 保持兼容性，但改为基于底板等级
 function expandCellsForAllSchemes(totalLevel) {
     let maxCellCount = 0;
     
@@ -1764,19 +2157,26 @@ function resetSystem() {
     // 8. 重置扩展进度（清除所有已完成的扩展等级）
     reachedExpansionLevels.clear();
     
-    // 9. 清除选择状态
+    // 9. 重置洗练次数
+    refineCount = 0;
+    
+    // 10. 重置底板等级和经验
+    boardLevel = 0;
+    boardExp = 0;
+    
+    // 11. 清除选择状态
     selectedBlockIds.clear();
     
-    // 10. 从默认配置文件重新加载配置
+    // 12. 从默认配置文件重新加载配置
     loadDefaultConfig();
     
-    // 11. 重新渲染
+    // 13. 重新渲染
     renderBoard();
     renderInventory();
     updateAttributeDisplay();
     updateExpansionProgressDisplay(); // 更新扩展进度显示
     
-    // 12. 保存游戏数据（不包含配置数据，配置数据会保留）
+    // 14. 保存游戏数据（不包含配置数据，配置数据会保留）
     saveGameData();
     
     console.log('系统已重置（已从默认配置重新加载）');
@@ -1813,24 +2213,36 @@ function loadConfigFromObject(config) {
         // 清空原有配置，完全替换
         Object.keys(SPECIAL_BLOCK_RANGE).forEach(key => delete SPECIAL_BLOCK_RANGE[key]);
         
-        // 兼容旧格式：如果1级是数组，转换为新格式
-        if (config.SPECIAL_BLOCK_RANGE[1] && Array.isArray(config.SPECIAL_BLOCK_RANGE[1])) {
-            // 旧格式：1级是数组，需要转换为新格式
-            const oldRange1 = config.SPECIAL_BLOCK_RANGE[1];
-            SPECIAL_BLOCK_RANGE[1] = {
-                'horizontal': oldRange1, // 使用旧数据作为横向
-                'vertical': [[0, 0], [0, 1], [0, -1]] // 默认纵向
-            };
-            // 复制其他等级
-            Object.keys(config.SPECIAL_BLOCK_RANGE).forEach(key => {
-                if (key !== '1') {
-                    SPECIAL_BLOCK_RANGE[key] = config.SPECIAL_BLOCK_RANGE[key];
+        // 兼容多种旧格式
+        Object.keys(config.SPECIAL_BLOCK_RANGE).forEach(level => {
+            const levelData = config.SPECIAL_BLOCK_RANGE[level];
+            
+            if (Array.isArray(levelData)) {
+                // 新格式：已经是数组（多个方案）
+                SPECIAL_BLOCK_RANGE[level] = levelData.map(scheme => Array.isArray(scheme) ? scheme : []);
+            } else if (typeof levelData === 'object') {
+                // 旧格式：1级是对象（horizontal/vertical）
+                if (level === '1' || level === 1) {
+                    // 转换为数组格式
+                    SPECIAL_BLOCK_RANGE[level] = [];
+                    if (levelData.horizontal) {
+                        SPECIAL_BLOCK_RANGE[level].push(levelData.horizontal);
+                    }
+                    if (levelData.vertical) {
+                        SPECIAL_BLOCK_RANGE[level].push(levelData.vertical);
+                    }
+                    if (SPECIAL_BLOCK_RANGE[level].length === 0) {
+                        SPECIAL_BLOCK_RANGE[level] = [[[0, 0], [1, 0], [-1, 0]]]; // 默认方案
+                    }
+                } else {
+                    // 其他等级的旧格式（单个数组），转换为数组格式
+                    SPECIAL_BLOCK_RANGE[level] = [levelData];
                 }
-            });
-        } else {
-            // 新格式：直接复制
-            Object.assign(SPECIAL_BLOCK_RANGE, config.SPECIAL_BLOCK_RANGE);
-        }
+            } else {
+                // 其他情况，使用默认值
+                SPECIAL_BLOCK_RANGE[level] = [[[0, 0]]];
+            }
+        });
     }
     if (config.GACHA_PROBABILITY) {
         // 完全替换宝箱概率配置
@@ -1881,6 +2293,28 @@ function loadConfigFromObject(config) {
     }
     if (config.BOARD_SCHEME_COUNT !== undefined) {
         BOARD_SCHEME_COUNT = config.BOARD_SCHEME_COUNT;
+    }
+    if (config.AVAILABLE_BLOCK_COMBINATIONS && Array.isArray(config.AVAILABLE_BLOCK_COMBINATIONS)) {
+        // 完全替换方块组合配置
+        AVAILABLE_BLOCK_COMBINATIONS.length = 0;
+        AVAILABLE_BLOCK_COMBINATIONS.push(...config.AVAILABLE_BLOCK_COMBINATIONS);
+    }
+    if (config.BOARD_LEVEL_EXPANSION && Array.isArray(config.BOARD_LEVEL_EXPANSION)) {
+        // 完全替换底板等级扩展配置
+        BOARD_LEVEL_EXPANSION.length = 0;
+        BOARD_LEVEL_EXPANSION.push(...config.BOARD_LEVEL_EXPANSION);
+        BOARD_LEVEL_EXPANSION.sort((a, b) => a.level - b.level);
+    }
+    if (config.BOARD_LEVEL_EXP_REQUIREMENTS && Array.isArray(config.BOARD_LEVEL_EXP_REQUIREMENTS)) {
+        // 完全替换底板等级经验需求配置
+        BOARD_LEVEL_EXP_REQUIREMENTS.length = 0;
+        BOARD_LEVEL_EXP_REQUIREMENTS.push(...config.BOARD_LEVEL_EXP_REQUIREMENTS);
+        BOARD_LEVEL_EXP_REQUIREMENTS.sort((a, b) => a.level - b.level);
+    }
+    if (config.CHEST_EXP_REWARDS) {
+        // 完全替换宝箱经验奖励配置
+        CHEST_EXP_REWARDS.low = config.CHEST_EXP_REWARDS.low || 10;
+        CHEST_EXP_REWARDS.high = config.CHEST_EXP_REWARDS.high || 50;
     }
 }
 
@@ -2149,7 +2583,10 @@ function saveGameData() {
         goldKeys: goldKeys,
         activeDays: activeDays,
         playerRole: playerRole,
-        reachedExpansionLevels: Array.from(reachedExpansionLevels)
+        reachedExpansionLevels: Array.from(reachedExpansionLevels),
+        refineCount: refineCount,
+        boardLevel: boardLevel,
+        boardExp: boardExp
     };
     
     localStorage.setItem('tetrisGameData', JSON.stringify(data));
@@ -2217,6 +2654,28 @@ function loadGameData() {
         } else {
             reachedExpansionLevels = new Set();
         }
+        
+        // 恢复洗练次数（如果已保存则使用保存的值，否则使用初始值0）
+        if (data.refineCount !== undefined) {
+            refineCount = data.refineCount;
+        } else {
+            refineCount = 0; // 初始值
+        }
+        
+        // 恢复底板等级和经验（如果已保存则使用保存的值，否则使用初始值0）
+        if (data.boardLevel !== undefined) {
+            boardLevel = data.boardLevel;
+        } else {
+            boardLevel = 0; // 初始值
+        }
+        if (data.boardExp !== undefined) {
+            boardExp = data.boardExp;
+        } else {
+            boardExp = 0; // 初始值
+        }
+        
+        // 根据底板等级扩展底板
+        expandCellsForAllSchemesByBoardLevel();
         
         // 先恢复所有方案的数据（放置方块到底板）
         // 然后根据恢复的方块数据重新构建 blockUsageMap
@@ -2396,6 +2855,18 @@ function renderConfigPage() {
                 case 'table9':
                     renderSchemeCountTable(content);
                     break;
+                case 'table10':
+                    renderBlockCombinationsTable(content);
+                    break;
+                case 'table11':
+                    renderBoardLevelExpansionTable(content);
+                    break;
+                case 'table12':
+                    renderBoardLevelExpRequirementsTable(content);
+                    break;
+                case 'table13':
+                    renderChestExpRewardsTable(content);
+                    break;
     }
     
     // 为所有输入框添加自动保存事件监听器
@@ -2474,215 +2945,262 @@ function renderAttributeLevelTable(container) {
     container.appendChild(table);
 }
 
-// 渲染特殊方块区域表（图形化配置）
+// 渲染特殊方块区域表（图形化配置，支持多方案）
 function renderSpecialBlockRangeTable(container) {
     const div = document.createElement('div');
     div.innerHTML = '<p>特殊方块影响区域配置（点击格子来切换是否在影响范围内）</p>';
     div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">白色格子 = 不在范围内，紫色格子 = 在范围内，中心格子（深紫色）= 特殊方块位置</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">每个等级可以有多个区域方案，特殊方块生成时会从该等级的所有方案中随机选择一个</p>';
     
-    for (let level = 1; level <= 5; level++) {
-        // 1级特殊方块有两种类型，需要分别显示
-        if (level === 1) {
-            // 横向类型
-            const horizontalDiv = document.createElement('div');
-            horizontalDiv.style.marginBottom = '30px';
-            horizontalDiv.style.padding = '15px';
-            horizontalDiv.style.background = 'white';
-            horizontalDiv.style.borderRadius = '5px';
-            horizontalDiv.innerHTML = `<h4>等级 ${level} - 横向类型</h4>`;
-            
-            const horizontalContainer = document.createElement('div');
-            horizontalContainer.className = 'range-grid-container';
-            horizontalContainer.dataset.level = level;
-            horizontalContainer.dataset.type = 'horizontal';
-            
-            const horizontalRange = SPECIAL_BLOCK_RANGE[1]['horizontal'] || [];
-            const allX = horizontalRange.map(([x]) => x);
-            const allY = horizontalRange.map(([, y]) => y);
-            const minX = Math.min(...allX, -3);
-            const maxX = Math.max(...allX, 3);
-            const minY = Math.min(...allY, -3);
-            const maxY = Math.max(...allY, 3);
-            const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
-            const centerOffset = Math.floor(gridSize / 2);
-            
-            const grid = document.createElement('div');
-            grid.className = 'range-config-grid';
-            grid.style.display = 'grid';
-            grid.style.gridTemplateColumns = `repeat(${gridSize}, 35px)`;
-            grid.style.gap = '2px';
-            grid.style.margin = '10px 0';
-            
-            const rangeSet = new Set(horizontalRange.map(([x, y]) => `${x},${y}`));
-            
-            for (let row = 0; row < gridSize; row++) {
-                for (let col = 0; col < gridSize; col++) {
-                    const cell = document.createElement('div');
-                    const x = col - centerOffset;
-                    const y = row - centerOffset;
-                    const key = `${x},${y}`;
-                    
-                    cell.className = 'range-config-cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    cell.dataset.level = level;
-                    
-                    if (x === 0 && y === 0) {
-                        cell.classList.add('center-cell');
-                        cell.textContent = '★';
-                    } else if (rangeSet.has(key)) {
-                        cell.classList.add('active');
-                    }
-                    
-                    cell.addEventListener('click', () => {
-                        if (x === 0 && y === 0) return;
-                        cell.classList.toggle('active');
-                    });
-                    
-                    grid.appendChild(cell);
-                }
-            }
-            
-            horizontalContainer.appendChild(grid);
-            horizontalDiv.appendChild(horizontalContainer);
-            div.appendChild(horizontalDiv);
-            
-            // 纵向类型
-            const verticalDiv = document.createElement('div');
-            verticalDiv.style.marginBottom = '30px';
-            verticalDiv.style.padding = '15px';
-            verticalDiv.style.background = 'white';
-            verticalDiv.style.borderRadius = '5px';
-            verticalDiv.innerHTML = `<h4>等级 ${level} - 纵向类型</h4>`;
-            
-            const verticalContainer = document.createElement('div');
-            verticalContainer.className = 'range-grid-container';
-            verticalContainer.dataset.level = level;
-            verticalContainer.dataset.type = 'vertical';
-            
-            const verticalRange = SPECIAL_BLOCK_RANGE[1]['vertical'] || [];
-            const allX2 = verticalRange.map(([x]) => x);
-            const allY2 = verticalRange.map(([, y]) => y);
-            const minX2 = Math.min(...allX2, -3);
-            const maxX2 = Math.max(...allX2, 3);
-            const minY2 = Math.min(...allY2, -3);
-            const maxY2 = Math.max(...allY2, 3);
-            const gridSize2 = Math.max(maxX2 - minX2 + 1, maxY2 - minY2 + 1, 7);
-            const centerOffset2 = Math.floor(gridSize2 / 2);
-            
-            const grid2 = document.createElement('div');
-            grid2.className = 'range-config-grid';
-            grid2.style.display = 'grid';
-            grid2.style.gridTemplateColumns = `repeat(${gridSize2}, 35px)`;
-            grid2.style.gap = '2px';
-            grid2.style.margin = '10px 0';
-            
-            const rangeSet2 = new Set(verticalRange.map(([x, y]) => `${x},${y}`));
-            
-            for (let row = 0; row < gridSize2; row++) {
-                for (let col = 0; col < gridSize2; col++) {
-                    const cell = document.createElement('div');
-                    const x = col - centerOffset2;
-                    const y = row - centerOffset2;
-                    const key = `${x},${y}`;
-                    
-                    cell.className = 'range-config-cell';
-                    cell.dataset.x = x;
-                    cell.dataset.y = y;
-                    cell.dataset.level = level;
-                    
-                    if (x === 0 && y === 0) {
-                        cell.classList.add('center-cell');
-                        cell.textContent = '★';
-                    } else if (rangeSet2.has(key)) {
-                        cell.classList.add('active');
-                    }
-                    
-                    cell.addEventListener('click', () => {
-                        if (x === 0 && y === 0) return;
-                        cell.classList.toggle('active');
-                    });
-                    
-                    grid2.appendChild(cell);
-                }
-            }
-            
-            verticalContainer.appendChild(grid2);
-            verticalDiv.appendChild(verticalContainer);
-            div.appendChild(verticalDiv);
-            
-            continue; // 跳过下面的通用处理
-        }
-        
-        // 2-5级的通用处理
+    // 确保SPECIAL_BLOCK_RANGE是对象格式
+    if (!SPECIAL_BLOCK_RANGE || typeof SPECIAL_BLOCK_RANGE !== 'object') {
+        SPECIAL_BLOCK_RANGE = {};
+    }
+    
+    for (let level = 1; level <= 10; level++) {
         const levelDiv = document.createElement('div');
+        levelDiv.className = 'special-range-level-section';
         levelDiv.style.marginBottom = '30px';
         levelDiv.style.padding = '15px';
         levelDiv.style.background = 'white';
         levelDiv.style.borderRadius = '5px';
-        levelDiv.innerHTML = `<h4>等级 ${level}</h4>`;
+        levelDiv.innerHTML = `<h4>等级 ${level} 特殊方块区域方案</h4>`;
         
-        // 创建图形化配置区域
-        const gridContainer = document.createElement('div');
-        gridContainer.className = 'range-grid-container';
-        gridContainer.dataset.level = level;
-        
-        // 确定网格大小（根据当前范围计算）
-        const currentRange = SPECIAL_BLOCK_RANGE[level] || [];
-        const allX = currentRange.map(([x]) => x);
-        const allY = currentRange.map(([, y]) => y);
-        const minX = Math.min(...allX, -3);
-        const maxX = Math.max(...allX, 3);
-        const minY = Math.min(...allY, -3);
-        const maxY = Math.max(...allY, 3);
-        const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
-        const centerOffset = Math.floor(gridSize / 2);
-        
-        // 创建网格
-        const grid = document.createElement('div');
-        grid.className = 'range-config-grid';
-        grid.style.display = 'grid';
-        grid.style.gridTemplateColumns = `repeat(${gridSize}, 35px)`;
-        grid.style.gap = '2px';
-        grid.style.margin = '10px 0';
-        
-        // 创建格子
-        const rangeSet = new Set(currentRange.map(([x, y]) => `${x},${y}`));
-        
-        for (let row = 0; row < gridSize; row++) {
-            for (let col = 0; col < gridSize; col++) {
-                const cell = document.createElement('div');
-                const x = col - centerOffset;
-                const y = row - centerOffset;
-                const key = `${x},${y}`;
-                
-                cell.className = 'range-config-cell';
-                cell.dataset.x = x;
-                cell.dataset.y = y;
-                cell.dataset.level = level;
-                
-                if (x === 0 && y === 0) {
-                    cell.classList.add('center-cell');
-                    cell.textContent = '★';
-                } else if (rangeSet.has(key)) {
-                    cell.classList.add('active');
-                }
-                
-                cell.addEventListener('click', () => {
-                    if (x === 0 && y === 0) return; // 中心格子不能切换
-                    cell.classList.toggle('active');
-                });
-                
-                grid.appendChild(cell);
-            }
+        // 获取该等级的所有方案
+        let levelSchemes = SPECIAL_BLOCK_RANGE[level];
+        if (!levelSchemes) {
+            levelSchemes = [];
+            SPECIAL_BLOCK_RANGE[level] = levelSchemes;
         }
         
-        gridContainer.appendChild(grid);
-        levelDiv.appendChild(gridContainer);
+        // 兼容旧格式：转换为新格式（数组的数组）
+        if (!Array.isArray(levelSchemes)) {
+            // 旧格式对象（1级的horizontal/vertical）
+            if (typeof levelSchemes === 'object' && levelSchemes !== null) {
+                const schemes = [];
+                if (levelSchemes.horizontal && Array.isArray(levelSchemes.horizontal)) {
+                    schemes.push(levelSchemes.horizontal);
+                }
+                if (levelSchemes.vertical && Array.isArray(levelSchemes.vertical)) {
+                    schemes.push(levelSchemes.vertical);
+                }
+                levelSchemes = schemes.length > 0 ? schemes : [[]];
+            } else if (Array.isArray(levelSchemes) && levelSchemes.length > 0) {
+                // 检查是否是坐标数组（旧格式）还是数组的数组（新格式）
+                if (!Array.isArray(levelSchemes[0])) {
+                    // 单个坐标数组，包装成数组的数组
+                    levelSchemes = [levelSchemes];
+                }
+                // 否则已经是数组的数组格式
+            } else {
+                levelSchemes = [[]];
+            }
+            SPECIAL_BLOCK_RANGE[level] = levelSchemes;
+        }
+        
+        // 确保每个方案都是有效的数组，并过滤无效坐标
+        levelSchemes = levelSchemes.map(scheme => {
+            if (!Array.isArray(scheme)) {
+                return [];
+            }
+            // 过滤掉无效的坐标
+            return scheme.filter(coord => {
+                return Array.isArray(coord) && 
+                       coord.length >= 2 && 
+                       typeof coord[0] === 'number' && 
+                       typeof coord[1] === 'number' &&
+                       !isNaN(coord[0]) && 
+                       !isNaN(coord[1]);
+            });
+        });
+        SPECIAL_BLOCK_RANGE[level] = levelSchemes;
+        
+        // 如果该等级没有方案，添加一个空方案
+        if (levelSchemes.length === 0) {
+            levelSchemes.push([]);
+        }
+        
+        // 方案列表容器
+        const schemesContainer = document.createElement('div');
+        schemesContainer.className = 'schemes-container';
+        
+        // 渲染每个方案
+        levelSchemes.forEach((scheme, schemeIndex) => {
+            const schemeDiv = createSchemeEditor(level, schemeIndex, scheme);
+            schemesContainer.appendChild(schemeDiv);
+        });
+        
+        levelDiv.appendChild(schemesContainer);
+        
+        // 添加方案按钮
+        const addSchemeBtn = document.createElement('button');
+        addSchemeBtn.textContent = '+ 添加方案';
+        addSchemeBtn.className = 'add-scheme-btn';
+        addSchemeBtn.style.marginTop = '10px';
+        addSchemeBtn.style.padding = '8px 16px';
+        addSchemeBtn.style.backgroundColor = '#3498db';
+        addSchemeBtn.style.color = 'white';
+        addSchemeBtn.style.border = 'none';
+        addSchemeBtn.style.borderRadius = '4px';
+        addSchemeBtn.style.cursor = 'pointer';
+        addSchemeBtn.addEventListener('click', () => {
+            const newScheme = [];
+            SPECIAL_BLOCK_RANGE[level].push(newScheme);
+            const newSchemeDiv = createSchemeEditor(level, SPECIAL_BLOCK_RANGE[level].length - 1, newScheme);
+            schemesContainer.appendChild(newSchemeDiv);
+            saveConfigData();
+        });
+        levelDiv.appendChild(addSchemeBtn);
+        
         div.appendChild(levelDiv);
     }
     
     container.appendChild(div);
+}
+
+// 创建方案编辑器（可视化网格样式）
+function createSchemeEditor(level, schemeIndex, scheme) {
+    const schemeDiv = document.createElement('div');
+    schemeDiv.className = 'scheme-editor';
+    schemeDiv.style.marginBottom = '20px';
+    schemeDiv.style.padding = '15px';
+    schemeDiv.style.border = '1px solid #bdc3c7';
+    schemeDiv.style.borderRadius = '4px';
+    schemeDiv.style.backgroundColor = 'white';
+    
+    const schemeHeader = document.createElement('div');
+    schemeHeader.style.display = 'flex';
+    schemeHeader.style.justifyContent = 'space-between';
+    schemeHeader.style.alignItems = 'center';
+    schemeHeader.style.marginBottom = '10px';
+    
+    const schemeTitle = document.createElement('strong');
+    schemeTitle.textContent = `方案 ${schemeIndex + 1}`;
+    schemeTitle.style.fontSize = '14px';
+    schemeHeader.appendChild(schemeTitle);
+    
+    // 删除按钮（如果方案数量大于1）
+    if (SPECIAL_BLOCK_RANGE[level].length > 1) {
+        const deleteBtn = document.createElement('button');
+        deleteBtn.textContent = '删除方案';
+        deleteBtn.className = 'delete-scheme-btn';
+        deleteBtn.style.padding = '4px 8px';
+        deleteBtn.style.backgroundColor = '#e74c3c';
+        deleteBtn.style.color = 'white';
+        deleteBtn.style.border = 'none';
+        deleteBtn.style.borderRadius = '3px';
+        deleteBtn.style.cursor = 'pointer';
+        deleteBtn.style.fontSize = '12px';
+        deleteBtn.addEventListener('click', () => {
+            SPECIAL_BLOCK_RANGE[level].splice(schemeIndex, 1);
+            schemeDiv.remove();
+            // 重新渲染该等级的所有方案（更新索引）
+            const levelDiv = schemeDiv.closest('.special-range-level-section');
+            if (levelDiv) {
+                const schemesContainer = levelDiv.querySelector('.schemes-container');
+                schemesContainer.innerHTML = '';
+                SPECIAL_BLOCK_RANGE[level].forEach((s, idx) => {
+                    const newSchemeDiv = createSchemeEditor(level, idx, s);
+                    schemesContainer.appendChild(newSchemeDiv);
+                });
+            }
+            saveConfigData();
+        });
+        schemeHeader.appendChild(deleteBtn);
+    }
+    
+    schemeDiv.appendChild(schemeHeader);
+    
+    // 创建可视化网格
+    const gridContainer = document.createElement('div');
+    gridContainer.className = 'range-grid-container';
+    gridContainer.dataset.level = level;
+    gridContainer.dataset.schemeIndex = schemeIndex;
+    
+    // 计算网格大小
+    // 确保scheme是数组，并且每个元素都是有效的坐标数组
+    if (!Array.isArray(scheme)) {
+        scheme = [];
+    }
+    // 过滤掉无效的坐标
+    const validCoords = scheme.filter(coord => Array.isArray(coord) && coord.length >= 2 && typeof coord[0] === 'number' && typeof coord[1] === 'number');
+    
+    let allX = [];
+    let allY = [];
+    if (validCoords.length > 0) {
+        allX = validCoords.map(([x]) => x);
+        allY = validCoords.map(([, y]) => y);
+    }
+    
+    const minX = allX.length > 0 ? Math.min(...allX, -3) : -3;
+    const maxX = allX.length > 0 ? Math.max(...allX, 3) : 3;
+    const minY = allY.length > 0 ? Math.min(...allY, -3) : -3;
+    const maxY = allY.length > 0 ? Math.max(...allY, 3) : 3;
+    const gridSize = Math.max(maxX - minX + 1, maxY - minY + 1, 7);
+    const centerOffset = Math.floor(gridSize / 2);
+    
+    const grid = document.createElement('div');
+    grid.className = 'range-config-grid';
+    grid.style.display = 'grid';
+    grid.style.gridTemplateColumns = `repeat(${gridSize}, 35px)`;
+    grid.style.gap = '2px';
+    grid.style.margin = '10px 0';
+    
+    const rangeSet = new Set(validCoords.map(([x, y]) => `${x},${y}`));
+    
+    // 创建网格单元格
+    for (let row = 0; row < gridSize; row++) {
+        for (let col = 0; col < gridSize; col++) {
+            const cell = document.createElement('div');
+            const x = col - centerOffset;
+            const y = row - centerOffset;
+            const key = `${x},${y}`;
+            
+            cell.className = 'range-config-cell';
+            cell.dataset.x = x;
+            cell.dataset.y = y;
+            cell.dataset.level = level;
+            cell.dataset.schemeIndex = schemeIndex;
+            
+            if (x === 0 && y === 0) {
+                cell.classList.add('center-cell');
+                cell.textContent = '★';
+            } else if (rangeSet.has(key)) {
+                cell.classList.add('active');
+            }
+            
+            cell.addEventListener('click', () => {
+                if (x === 0 && y === 0) return; // 中心格子不能切换
+                
+                cell.classList.toggle('active');
+                
+                // 更新scheme数组
+                const coord = [x, y];
+                if (cell.classList.contains('active')) {
+                    // 添加坐标
+                    const exists = scheme.some(c => c[0] === x && c[1] === y);
+                    if (!exists) {
+                        scheme.push(coord);
+                    }
+                } else {
+                    // 移除坐标
+                    const index = scheme.findIndex(c => c[0] === x && c[1] === y);
+                    if (index >= 0) {
+                        scheme.splice(index, 1);
+                    }
+                }
+                
+                saveConfigData();
+            });
+            
+            grid.appendChild(cell);
+        }
+    }
+    
+    gridContainer.appendChild(grid);
+    schemeDiv.appendChild(gridContainer);
+    
+    return schemeDiv;
 }
 
 // 渲染宝箱概率表
@@ -3047,6 +3565,296 @@ function renderSchemeCountTable(container) {
     container.appendChild(div);
 }
 
+// 渲染方块组合配置表
+function renderBlockCombinationsTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置宝箱中可能出现的方块种类（形状和旋转组合）</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">勾选表示该组合可以在宝箱中出现，取消勾选表示该组合不会在宝箱中出现</p>';
+    
+    // 确保所有组合都存在（初始化缺失的组合）
+    // 只有rotation=0的组合默认启用，其他角度默认禁用
+    for (let shape = 0; shape < TETRIS_SHAPES.length; shape++) {
+        for (let rotation of [0, 90, 180, 270]) {
+            const exists = AVAILABLE_BLOCK_COMBINATIONS.some(
+                c => c.shape === shape && c.rotation === rotation
+            );
+            if (!exists) {
+                AVAILABLE_BLOCK_COMBINATIONS.push({
+                    shape,
+                    rotation,
+                    enabled: rotation === 0  // 只有0度旋转默认启用
+                });
+            }
+        }
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th style="width: 120px;">预览</th>
+            <th style="width: 100px;">形状</th>
+            <th style="width: 100px;">旋转角度</th>
+            <th style="width: 120px;">启用/禁用</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    const tbody = document.createElement('tbody');
+    
+    // 按形状分组显示
+    for (let shape = 0; shape < TETRIS_SHAPES.length; shape++) {
+        const rotations = [0, 90, 180, 270];
+        rotations.forEach((rotation) => {
+            const row = document.createElement('tr');
+            
+            // 查找对应的配置项
+            const combination = AVAILABLE_BLOCK_COMBINATIONS.find(
+                c => c.shape === shape && c.rotation === rotation
+            );
+            
+            // 预览单元格
+            const previewCell = document.createElement('td');
+            previewCell.style.textAlign = 'center';
+            previewCell.style.padding = '10px';
+            previewCell.style.verticalAlign = 'middle';
+            const preview = renderBlockPreview(shape, rotation);
+            previewCell.appendChild(preview);
+            
+            // 形状单元格
+            const shapeCell = document.createElement('td');
+            shapeCell.textContent = SHAPE_NAMES[shape] || `形状${shape}`;
+            shapeCell.style.textAlign = 'center';
+            shapeCell.style.verticalAlign = 'middle';
+            
+            // 旋转角度单元格
+            const rotationCell = document.createElement('td');
+            rotationCell.textContent = `${rotation}°`;
+            rotationCell.style.textAlign = 'center';
+            rotationCell.style.verticalAlign = 'middle';
+            
+            // 启用/禁用单元格
+            const enableCell = document.createElement('td');
+            enableCell.style.textAlign = 'center';
+            enableCell.style.verticalAlign = 'middle';
+            const checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.checked = combination ? combination.enabled : true;
+            checkbox.dataset.shape = shape;
+            checkbox.dataset.rotation = rotation;
+            checkbox.addEventListener('change', () => {
+                if (combination) {
+                    combination.enabled = checkbox.checked;
+                    row.style.opacity = checkbox.checked ? '1' : '0.5';
+                    saveConfigData();
+                }
+            });
+            enableCell.appendChild(checkbox);
+            
+            if (!combination || !combination.enabled) {
+                row.style.opacity = '0.5';
+            }
+            
+            row.appendChild(previewCell);
+            row.appendChild(shapeCell);
+            row.appendChild(rotationCell);
+            row.appendChild(enableCell);
+            
+            tbody.appendChild(row);
+        });
+    }
+    
+    table.appendChild(tbody);
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
+// 渲染方块预览（用于配置页面）
+function renderBlockPreview(shape, rotation) {
+    const block = new Block(1, shape, rotation, false);
+    const container = document.createElement('div');
+    container.style.display = 'inline-block';
+    container.style.verticalAlign = 'middle';
+    
+    const grid = document.createElement('div');
+    grid.style.display = 'inline-grid';
+    grid.style.border = '1px solid #ddd';
+    grid.style.borderRadius = '3px';
+    grid.style.padding = '2px';
+    grid.style.backgroundColor = '#f8f9fa';
+    
+    const positions = block.getPositions(0, 0);
+    const minX = Math.min(...positions.map(([x]) => x));
+    const minY = Math.min(...positions.map(([, y]) => y));
+    const maxX = Math.max(...positions.map(([x]) => x));
+    const maxY = Math.max(...positions.map(([, y]) => y));
+    
+    const cellSize = 12;
+    grid.style.gridTemplateColumns = `repeat(${maxX - minX + 1}, ${cellSize}px)`;
+    grid.style.gridTemplateRows = `repeat(${maxY - minY + 1}, ${cellSize}px)`;
+    grid.style.gap = '1px';
+    
+    positions.forEach(([x, y]) => {
+        const cellEl = document.createElement('div');
+        cellEl.style.backgroundColor = '#3498db';
+        cellEl.style.border = '1px solid #2980b9';
+        cellEl.style.borderRadius = '2px';
+        cellEl.style.gridColumn = (x - minX + 1);
+        cellEl.style.gridRow = (y - minY + 1);
+        grid.appendChild(cellEl);
+    });
+    
+    container.appendChild(grid);
+    return container;
+}
+
+// 已删除：第二个 renderSpecialBlockRangeTable 函数（table11），保留 table2 的函数即可
+
+// 渲染底板等级扩展配置表
+function renderBoardLevelExpansionTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置底板等级与格子数量增加的关系</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">每个等级可以配置增加的格子数量</p>';
+    
+    if (!BOARD_LEVEL_EXPANSION || !Array.isArray(BOARD_LEVEL_EXPANSION)) {
+        BOARD_LEVEL_EXPANSION = [];
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>底板等级</th>
+            <th>增加的格子数</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    const tbody = document.createElement('tbody');
+    BOARD_LEVEL_EXPANSION.forEach((expansion, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td><input type="number" min="1" class="board-level-expansion-level" data-index="${index}" value="${expansion.level}"></td>
+            <td><input type="number" min="0" class="board-level-expansion-cell" data-index="${index}" value="${expansion.cellIncrease}"></td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    table.appendChild(tbody);
+    div.appendChild(table);
+    
+    // 添加按钮
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ 添加等级';
+    addBtn.style.marginTop = '10px';
+    addBtn.addEventListener('click', () => {
+        const newLevel = BOARD_LEVEL_EXPANSION.length + 1;
+        BOARD_LEVEL_EXPANSION.push({ level: newLevel, cellIncrease: 3 });
+        renderConfigPage();
+        saveConfigData();
+    });
+    div.appendChild(addBtn);
+    
+    container.appendChild(div);
+}
+
+// 渲染底板等级经验需求配置表
+function renderBoardLevelExpRequirementsTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置底板等级升级所需的积分经验</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">每个等级可以配置升级所需的总经验值</p>';
+    
+    if (!BOARD_LEVEL_EXP_REQUIREMENTS || !Array.isArray(BOARD_LEVEL_EXP_REQUIREMENTS)) {
+        BOARD_LEVEL_EXP_REQUIREMENTS = [];
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>底板等级</th>
+            <th>所需经验</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    const tbody = document.createElement('tbody');
+    BOARD_LEVEL_EXP_REQUIREMENTS.forEach((requirement, index) => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td><input type="number" min="1" class="board-level-exp-req-level" data-index="${index}" value="${requirement.level}"></td>
+            <td><input type="number" min="0" class="board-level-exp-req-exp" data-index="${index}" value="${requirement.expRequired}"></td>
+        `;
+        tbody.appendChild(row);
+    });
+    
+    table.appendChild(tbody);
+    div.appendChild(table);
+    
+    // 添加按钮
+    const addBtn = document.createElement('button');
+    addBtn.textContent = '+ 添加等级';
+    addBtn.style.marginTop = '10px';
+    addBtn.addEventListener('click', () => {
+        const newLevel = BOARD_LEVEL_EXP_REQUIREMENTS.length + 1;
+        const newExp = (BOARD_LEVEL_EXP_REQUIREMENTS.length + 1) * 100;
+        BOARD_LEVEL_EXP_REQUIREMENTS.push({ level: newLevel, expRequired: newExp });
+        renderConfigPage();
+        saveConfigData();
+    });
+    div.appendChild(addBtn);
+    
+    container.appendChild(div);
+}
+
+// 渲染宝箱经验奖励配置表
+function renderChestExpRewardsTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置开启宝箱获得的积分经验</p>';
+    
+    if (!CHEST_EXP_REWARDS) {
+        CHEST_EXP_REWARDS = { low: 10, high: 50 };
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>宝箱类型</th>
+            <th>每次开启获得经验</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    const tbody = document.createElement('tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td>低级宝箱</td>
+            <td><input type="number" min="0" id="chest-exp-low" value="${CHEST_EXP_REWARDS.low}"></td>
+        </tr>
+        <tr>
+            <td>高级宝箱</td>
+            <td><input type="number" min="0" id="chest-exp-high" value="${CHEST_EXP_REWARDS.high}"></td>
+        </tr>
+    `;
+    
+    table.appendChild(tbody);
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
 // 渲染全满加成配置表
 function renderFullBoardBonusTable(container) {
     const div = document.createElement('div');
@@ -3122,41 +3930,8 @@ function saveConfigData() {
         }
     });
     
-    // 保存特殊方块区域（从图形化配置读取）
-    for (let level = 1; level <= 5; level++) {
-        // 1级特殊方块有两种类型，需要分别处理
-        if (level === 1) {
-            const horizontalContainer = document.querySelector(`.range-grid-container[data-level="1"][data-type="horizontal"]`);
-            const verticalContainer = document.querySelector(`.range-grid-container[data-level="1"][data-type="vertical"]`);
-            
-            if (horizontalContainer) {
-                const activeCells = horizontalContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
-                SPECIAL_BLOCK_RANGE[1]['horizontal'] = Array.from(activeCells).map(cell => {
-                    const x = parseInt(cell.dataset.x);
-                    const y = parseInt(cell.dataset.y);
-                    return [x, y];
-                });
-            }
-            if (verticalContainer) {
-                const activeCells = verticalContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
-                SPECIAL_BLOCK_RANGE[1]['vertical'] = Array.from(activeCells).map(cell => {
-                    const x = parseInt(cell.dataset.x);
-                    const y = parseInt(cell.dataset.y);
-                    return [x, y];
-                });
-            }
-        } else {
-            const gridContainer = document.querySelector(`.range-grid-container[data-level="${level}"]`);
-            if (gridContainer) {
-                const activeCells = gridContainer.querySelectorAll('.range-config-cell.active, .range-config-cell.center-cell');
-                SPECIAL_BLOCK_RANGE[level] = Array.from(activeCells).map(cell => {
-                    const x = parseInt(cell.dataset.x);
-                    const y = parseInt(cell.dataset.y);
-                    return [x, y];
-                });
-            }
-        }
-    }
+    // 特殊方块区域配置已经通过新配置界面直接修改SPECIAL_BLOCK_RANGE对象
+    // 这里不需要额外处理，因为新界面直接操作SPECIAL_BLOCK_RANGE
     
     // 保存宝箱概率
     document.querySelectorAll('#low-gacha-tbody input').forEach(input => {
@@ -3257,6 +4032,48 @@ function saveConfigData() {
         }
     }
     
+    // 保存底板等级扩展配置
+    const boardLevelExpansionTbody = document.querySelector('.board-level-expansion-level');
+    if (boardLevelExpansionTbody) {
+        BOARD_LEVEL_EXPANSION.length = 0;
+        document.querySelectorAll('.board-level-expansion-level').forEach((levelInput, index) => {
+            const cellInput = document.querySelector(`.board-level-expansion-cell[data-index="${index}"]`);
+            if (levelInput && cellInput) {
+                const level = parseInt(levelInput.value);
+                const cellIncrease = parseInt(cellInput.value);
+                if (!isNaN(level) && !isNaN(cellIncrease)) {
+                    BOARD_LEVEL_EXPANSION.push({ level, cellIncrease });
+                }
+            }
+        });
+        BOARD_LEVEL_EXPANSION.sort((a, b) => a.level - b.level);
+    }
+    
+    // 保存底板等级经验需求配置
+    const boardLevelExpReqTbody = document.querySelector('.board-level-exp-req-level');
+    if (boardLevelExpReqTbody) {
+        BOARD_LEVEL_EXP_REQUIREMENTS.length = 0;
+        document.querySelectorAll('.board-level-exp-req-level').forEach((levelInput, index) => {
+            const expInput = document.querySelector(`.board-level-exp-req-exp[data-index="${index}"]`);
+            if (levelInput && expInput) {
+                const level = parseInt(levelInput.value);
+                const expRequired = parseInt(expInput.value);
+                if (!isNaN(level) && !isNaN(expRequired)) {
+                    BOARD_LEVEL_EXP_REQUIREMENTS.push({ level, expRequired });
+                }
+            }
+        });
+        BOARD_LEVEL_EXP_REQUIREMENTS.sort((a, b) => a.level - b.level);
+    }
+    
+    // 保存宝箱经验奖励配置
+    const chestExpLowInput = document.getElementById('chest-exp-low');
+    const chestExpHighInput = document.getElementById('chest-exp-high');
+    if (chestExpLowInput && chestExpHighInput) {
+        CHEST_EXP_REWARDS.low = parseInt(chestExpLowInput.value) || 10;
+        CHEST_EXP_REWARDS.high = parseInt(chestExpHighInput.value) || 50;
+    }
+    
     // 保存到localStorage（完全覆盖，使用深拷贝确保独立）
     const configToSave = {
         ATTRIBUTE_LEVEL_TABLE: JSON.parse(JSON.stringify(ATTRIBUTE_LEVEL_TABLE)),
@@ -3264,8 +4081,12 @@ function saveConfigData() {
         GACHA_PROBABILITY: JSON.parse(JSON.stringify(GACHA_PROBABILITY)),
         SECONDARY_ATTRIBUTE_CONFIG: JSON.parse(JSON.stringify(SECONDARY_ATTRIBUTE_CONFIG)),
         SPECIAL_BLOCK_BONUS: JSON.parse(JSON.stringify(SPECIAL_BLOCK_BONUS)),
+        BOARD_LEVEL_EXPANSION: JSON.parse(JSON.stringify(BOARD_LEVEL_EXPANSION)),
+        BOARD_LEVEL_EXP_REQUIREMENTS: JSON.parse(JSON.stringify(BOARD_LEVEL_EXP_REQUIREMENTS)),
+        CHEST_EXP_REWARDS: JSON.parse(JSON.stringify(CHEST_EXP_REWARDS)),
         FULL_BOARD_BONUS: FULL_BOARD_BONUS,
-        BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT
+        BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT,
+        AVAILABLE_BLOCK_COMBINATIONS: JSON.parse(JSON.stringify(AVAILABLE_BLOCK_COMBINATIONS))
     };
     
     // 确保保存有效的扩展规则（使用深拷贝）
@@ -3341,7 +4162,8 @@ function exportConfigToJSON() {
                 FULL_BOARD_BONUS: FULL_BOARD_BONUS,
                 BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT,
                 BOARD_EXPANSION_RULES: JSON.parse(JSON.stringify(BOARD_EXPANSION_RULES)),
-                ACTIVE_DAY_REWARDS: JSON.parse(JSON.stringify(ACTIVE_DAY_REWARDS))
+                ACTIVE_DAY_REWARDS: JSON.parse(JSON.stringify(ACTIVE_DAY_REWARDS)),
+                AVAILABLE_BLOCK_COMBINATIONS: JSON.parse(JSON.stringify(AVAILABLE_BLOCK_COMBINATIONS))
             };
             
             currentConfig = JSON.stringify(configToExport);

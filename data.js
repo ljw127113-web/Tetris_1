@@ -35,17 +35,26 @@ const SECONDARY_ATTRIBUTE_CONFIG = {
 };
 
 // 表格2: 特殊方块影响区域（坐标偏移）- 覆盖面积已减半
-// 1级特殊方块有两种类型：横向和纵向
-const SPECIAL_BLOCK_RANGE = {
-    1: {
-        'horizontal': [[0, 0], [1, 0], [-1, 0]],  // 横向
-        'vertical': [[0, 0], [0, 1], [0, -1]]     // 纵向
-    },
-    2: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]],  // 减半：从3x3（9格）减为十字形（5格）
-    3: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]], // 减半：从5x5十字（13格）减为十字形（7格）
-    4: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]],  // 减半：从21格减为9格
-    5: [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], 
-        [2, 0], [-2, 0], [0, 2], [0, -2]]  // 减半：从29格减为5x5十字（13格）
+// 每个等级可以有多个区域方案，每个方案是一个坐标数组
+// 特殊方块生成时会从该等级的所有方案中随机选择一个
+let SPECIAL_BLOCK_RANGE = {
+    1: [
+        [[0, 0], [1, 0], [-1, 0]],  // 方案1：横向
+        [[0, 0], [0, 1], [0, -1]]   // 方案2：纵向
+    ],
+    2: [
+        [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]  // 方案1：十字形（5格）
+    ],
+    3: [
+        [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0]]  // 方案1：十字形（7格）
+    ],
+    4: [
+        [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [2, 0], [-2, 0], [0, 2], [0, -2]]  // 方案1：十字形（9格）
+    ],
+    5: [
+        [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1], 
+         [2, 0], [-2, 0], [0, 2], [0, -2]]  // 方案1：十字形（13格）
+    ]
 };
 
 // 特殊方块加成数值（按等级）
@@ -123,7 +132,7 @@ const PRIMARY_ATTR_NAMES = {
     'health': '生命'
 };
 
-// 底板扩展规则（总等级 -> 格子数量）
+// 底板扩展规则（总等级 -> 格子数量）- 已废弃，改用 BOARD_LEVEL_EXPANSION
 const BOARD_EXPANSION_RULES = [
     { level: 15, count: 28 },
     { level: 30, count: 31 },
@@ -134,6 +143,36 @@ const BOARD_EXPANSION_RULES = [
     { level: 105, count: 46 },
     { level: 120, count: 49 }
 ];
+
+// 底板等级扩展配置（底板等级 -> 增加的格子数量）
+let BOARD_LEVEL_EXPANSION = [
+    { level: 1, cellIncrease: 3 },   // 底板等级1时，增加3格（从25到28）
+    { level: 2, cellIncrease: 3 },   // 底板等级2时，再增加3格（从28到31）
+    { level: 3, cellIncrease: 3 },   // 底板等级3时，再增加3格（从31到34）
+    { level: 4, cellIncrease: 3 },   // 底板等级4时，再增加3格（从34到37）
+    { level: 5, cellIncrease: 3 },   // 底板等级5时，再增加3格（从37到40）
+    { level: 6, cellIncrease: 3 },   // 底板等级6时，再增加3格（从40到43）
+    { level: 7, cellIncrease: 3 },   // 底板等级7时，再增加3格（从43到46）
+    { level: 8, cellIncrease: 3 }    // 底板等级8时，再增加3格（从46到49）
+];
+
+// 底板等级经验需求配置（等级 -> 所需积分经验）
+let BOARD_LEVEL_EXP_REQUIREMENTS = [
+    { level: 1, expRequired: 200 },   // 从0级升级到1级需要100经验
+    { level: 2, expRequired: 500 },   // 从1级升级到2级需要200经验
+    { level: 3, expRequired: 1000 },   // 从2级升级到3级需要300经验
+    { level: 4, expRequired: 3000 },   // 从3级升级到4级需要400经验
+    { level: 5, expRequired: 6000 },   // 从4级升级到5级需要500经验
+    { level: 6, expRequired: 10000 },   // 从5级升级到6级需要600经验
+    { level: 7, expRequired: 20000 },   // 从6级升级到7级需要700经验
+    { level: 8, expRequired: 40000 }    // 从7级升级到8级需要800经验
+];
+
+// 宝箱经验奖励配置
+let CHEST_EXP_REWARDS = {
+    low: 2,   // 低级宝箱开启一次获得10经验
+    high: 5   // 高级宝箱开启一次获得50经验
+};
 
 // 底板填满后的属性加成比例（1.5表示增加50%，即最终为150%）
 let FULL_BOARD_BONUS = 1.5;
@@ -158,4 +197,24 @@ const PLAYER_ROLE_AVATARS = {
 
 // 底板方案数量配置
 let BOARD_SCHEME_COUNT = 3; // 默认3个方案
+
+// 方块形状名称映射（用于显示）
+const SHAPE_NAMES = ['I型', 'O型', 'T型', 'S型', 'Z型', 'J型', 'L型'];
+
+// 可用方块组合配置（形状+旋转的组合，用于宝箱生成）
+// 默认只包含基本形状（rotation=0），其他角度从宝箱中删除
+let AVAILABLE_BLOCK_COMBINATIONS = [];
+// 初始化所有可能的组合（但只有rotation=0的默认启用）
+(function initBlockCombinations() {
+    AVAILABLE_BLOCK_COMBINATIONS = [];
+    for (let shape = 0; shape < TETRIS_SHAPES.length; shape++) {
+        for (let rotation of [0, 90, 180, 270]) {
+            AVAILABLE_BLOCK_COMBINATIONS.push({
+                shape: shape,
+                rotation: rotation,
+                enabled: rotation === 0  // 只有0度旋转默认启用，其他角度默认禁用
+            });
+        }
+    }
+})();
 

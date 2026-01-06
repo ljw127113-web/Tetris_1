@@ -447,6 +447,89 @@ body {
     cursor: not-allowed;
 }
 
+.block.selected {
+    outline: 3px solid #3498db;
+    outline-offset: 2px;
+    box-shadow: 0 0 10px rgba(52, 152, 219, 0.6);
+    z-index: 1000;
+}
+
+/* 旋转控制面板 */
+.rotation-control-panel {
+    background: white;
+    border: 2px solid #3498db;
+    border-radius: 8px;
+    padding: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 140px;
+}
+
+.rotation-btn {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #3498db 0%, #2980b9 100%);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+}
+
+.rotation-btn:hover {
+    background: linear-gradient(135deg, #2980b9 0%, #21618c 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(52, 152, 219, 0.4);
+}
+
+.rotation-btn:active {
+    transform: translateY(0);
+}
+
+.refine-btn {
+    padding: 8px 16px;
+    background: linear-gradient(135deg, #9b59b6 0%, #8e44ad 100%);
+    color: white;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: all 0.3s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    width: 100%;
+    margin-top: 5px;
+}
+
+.refine-btn:hover {
+    background: linear-gradient(135deg, #8e44ad 0%, #7d3c98 100%);
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(155, 89, 182, 0.4);
+}
+
+.refine-btn:active {
+    transform: translateY(0);
+}
+
+.drag-hint {
+    font-size: 11px;
+    color: #7f8c8d;
+    text-align: center;
+    padding-top: 4px;
+    border-top: 1px solid #ecf0f1;
+    margin-top: 5px;
+}
+
 .block.in-use::after {
     content: '使用中';
     position: absolute;
