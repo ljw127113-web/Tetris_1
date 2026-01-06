@@ -174,6 +174,9 @@ let CHEST_EXP_REWARDS = {
     high: 5   // 高级宝箱开启一次获得50经验
 };
 
+// 洗练等级要求配置
+let REFINE_LEVEL_REQUIREMENT = 5; // 只有此等级及以上的方块才能洗练
+
 // 底板填满后的属性加成比例（1.5表示增加50%，即最终为150%）
 let FULL_BOARD_BONUS = 1.5;
 

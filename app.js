@@ -865,8 +865,10 @@ function createRotationControlPanel(blockEl) {
         rotationControlPanel.appendChild(rotateBtn);
     }
     
-    // 洗练按钮（只对非特殊方块显示）
-    if (selectedBlock && !selectedBlock.isSpecial) {
+    // 洗练按钮（只对非特殊方块且达到等级要求显示）
+    const blockLevel = selectedBlock ? parseInt(selectedBlock.level) : 0;
+    const refineRequirement = REFINE_LEVEL_REQUIREMENT || 5;
+    if (selectedBlock && !selectedBlock.isSpecial && blockLevel >= refineRequirement) {
         const refineBtn = document.createElement('button');
         refineBtn.className = 'refine-btn';
         refineBtn.innerHTML = '✨ 洗练';
@@ -916,6 +918,12 @@ function updateRotationPanelPosition(blockEl) {
 // 洗练选中的方块（重新生成属性，保持形状不变）
 function refineSelectedBlock() {
     if (!selectedBlock || selectedBlock.isSpecial) return; // 特殊方块不能洗练
+    const blockLevel = parseInt(selectedBlock.level);
+    const refineRequirement = REFINE_LEVEL_REQUIREMENT || 5;
+    if (isNaN(blockLevel) || blockLevel < refineRequirement) {
+        alert(`只有${refineRequirement}级及以上的方块才能洗练！`);
+        return; // 未达到等级要求不能洗练
+    }
     
     // 保存方块的形状、旋转角度和等级
     const originalShape = selectedBlock.shape;
@@ -2316,6 +2324,10 @@ function loadConfigFromObject(config) {
         CHEST_EXP_REWARDS.low = config.CHEST_EXP_REWARDS.low || 10;
         CHEST_EXP_REWARDS.high = config.CHEST_EXP_REWARDS.high || 50;
     }
+    if (config.REFINE_LEVEL_REQUIREMENT !== undefined) {
+        // 加载洗练等级要求配置
+        REFINE_LEVEL_REQUIREMENT = parseInt(config.REFINE_LEVEL_REQUIREMENT) || 5;
+    }
 }
 
 // 存储选中的方块ID（用于手动合成）
@@ -2866,6 +2878,9 @@ function renderConfigPage() {
                     break;
                 case 'table13':
                     renderChestExpRewardsTable(content);
+                    break;
+                case 'table14':
+                    renderRefineLevelRequirementTable(content);
                     break;
     }
     
@@ -3855,6 +3870,40 @@ function renderChestExpRewardsTable(container) {
     container.appendChild(div);
 }
 
+// 渲染洗练等级要求配置表
+function renderRefineLevelRequirementTable(container) {
+    const div = document.createElement('div');
+    div.innerHTML = '<p>配置方块洗练所需的最低等级</p>';
+    div.innerHTML += '<p style="color: #7f8c8d; font-size: 12px;">只有达到此等级及以上的方块才能进行洗练操作</p>';
+    
+    if (REFINE_LEVEL_REQUIREMENT === undefined || REFINE_LEVEL_REQUIREMENT === null) {
+        REFINE_LEVEL_REQUIREMENT = 5;
+    }
+    
+    const table = document.createElement('table');
+    table.className = 'config-table';
+    table.style.marginTop = '20px';
+    
+    const thead = document.createElement('thead');
+    thead.innerHTML = `
+        <tr>
+            <th>洗练等级要求</th>
+        </tr>
+    `;
+    table.appendChild(thead);
+    
+    const tbody = document.createElement('tbody');
+    tbody.innerHTML = `
+        <tr>
+            <td><input type="number" min="1" max="10" id="refine-level-requirement-input" value="${REFINE_LEVEL_REQUIREMENT}"></td>
+        </tr>
+    `;
+    
+    table.appendChild(tbody);
+    div.appendChild(table);
+    container.appendChild(div);
+}
+
 // 渲染全满加成配置表
 function renderFullBoardBonusTable(container) {
     const div = document.createElement('div');
@@ -4074,6 +4123,12 @@ function saveConfigData() {
         CHEST_EXP_REWARDS.high = parseInt(chestExpHighInput.value) || 50;
     }
     
+    // 保存洗练等级要求配置
+    const refineLevelRequirementInput = document.getElementById('refine-level-requirement-input');
+    if (refineLevelRequirementInput) {
+        REFINE_LEVEL_REQUIREMENT = parseInt(refineLevelRequirementInput.value) || 5;
+    }
+    
     // 保存到localStorage（完全覆盖，使用深拷贝确保独立）
     const configToSave = {
         ATTRIBUTE_LEVEL_TABLE: JSON.parse(JSON.stringify(ATTRIBUTE_LEVEL_TABLE)),
@@ -4084,6 +4139,7 @@ function saveConfigData() {
         BOARD_LEVEL_EXPANSION: JSON.parse(JSON.stringify(BOARD_LEVEL_EXPANSION)),
         BOARD_LEVEL_EXP_REQUIREMENTS: JSON.parse(JSON.stringify(BOARD_LEVEL_EXP_REQUIREMENTS)),
         CHEST_EXP_REWARDS: JSON.parse(JSON.stringify(CHEST_EXP_REWARDS)),
+        REFINE_LEVEL_REQUIREMENT: REFINE_LEVEL_REQUIREMENT,
         FULL_BOARD_BONUS: FULL_BOARD_BONUS,
         BOARD_SCHEME_COUNT: BOARD_SCHEME_COUNT,
         AVAILABLE_BLOCK_COMBINATIONS: JSON.parse(JSON.stringify(AVAILABLE_BLOCK_COMBINATIONS))
